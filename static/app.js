@@ -126,7 +126,13 @@ function showApp() {
 /* ---------------- Map ---------------- */
 function initMap() {
   if (state.map) return;
+  if (!window.L || !window.L.map) {
+    $("map-loading").classList.remove("hidden");
+    $("map-loading").textContent = "Biblioteca do mapa não carregou. Verifique sua conexão e recarregue.";
+    return;
+  }
   state.map = L.map("map").setView([-22.9068, -43.1729], 4);
+  state.map.attributionControl.setPrefix(false);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: "&copy; OpenStreetMap",
@@ -478,4 +484,25 @@ $("btn-locate").addEventListener("click", () => {
   }
 });
 
-boot();
+function fatal(msg) {
+  const el = $("map-loading");
+  el.style.display = "flex";
+  el.textContent = (msg || "Falha ao inicializar o mapa.") + " Verifique sua conexão e recarregue.";
+  const btn = document.createElement("button");
+  btn.className = "btn-primary";
+  btn.textContent = "🔄 Recarregar";
+  btn.style.marginLeft = "10px";
+  btn.onclick = () => location.reload();
+  el.appendChild(btn);
+}
+
+boot().catch((err) => {
+  console.error(err);
+  fatal("Não foi possível carregar o NearGram.");
+});
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}

@@ -36,17 +36,24 @@ O banco é criado automaticamente na primeira execução (`db.init()`).
 
 ## Deploy no Render
 
-O arquivo [`render.yaml`](render.yaml) provisiona automaticamente:
+O **site está no ar**: <https://neargram.onrender.com> (auto-deploy a cada `push` na branch `main`).
 
-1. um **web service** (plano free) rodando `python server.py`
-2. um **banco PostgreSQL** (plano free) conectado via `DATABASE_URL`
+O arquivo [`render.yaml`](render.yaml) documenta a config. Na prática foi criado via [Render Public API](https://api-docs.render.com): um **web service** (Python, free, Oregon) conectado a um **PostgreSQL free** do workspace, com as tabelas isoladas no schema `neargram` (convive com o app `timetracker` no mesmo banco sem conflito).
 
-Para subir:
+Para subir do zero:
+- **Via dashboard**: crie o app em `render.com` → **New + → Web Service**, conecte o repo público `victorenderli-cyber/neargram`, comando de build `pip install -r requirements.txt` e start `python server.py`; adicione a env var `DATABASE_URL` de um PostgreSQL.
+- **Via API**: `POST /v1/services` (web_service) + `POST /v1/postgres`.
 
-- **Via dashboard**: crie o app em `render.com` → **New + → Blueprint** e conecte este repositório (público: `victorenderli-cyber/neargram`).
-- **Via API**: use a [Blueprint Deploy API](https://render.com/docs/blueprint-spec) com uma API key.
+> ⚠️ No plano free, o serviço "dorme" após 15 min sem uso (primeiro acesso demora alguns segundos) e o Postgres expira em ~90 dias.
 
-> ⚠️ No plano free do Render, o serviço "dorme" após 15 min sem uso (primeiro acesso pode demorar alguns segundos). Os dados ficam no PostgreSQL (persistem); se não quiser banco, remova o bloco `databases` do `render.yaml` (aí os dados voltam a ser efêmeros).
+## App para Android e iOS (PWA)
+
+O NearGram é um **PWA instalável** — funciona como aplicativo nativo sem precisar de loja:
+
+- **Android**: Chrome → menu "⋮" → **Instalar aplicativo** (ou no banner "Adicionar ao ecrã inicial").
+- **iOS (iPhone/iPad)**: Safari → botão **compartilhar** → **Adicionar à Tela de Início**. (Para notificações/geolocalização em tela cheia no iOS, a abre o PWA.)
+
+Componentes: `manifest.json`, ícones em `static/icons/`, service worker `static/sw.js` (cache offline) e metatags iOS. O Leaflet é servido localmente (`static/vendor/leaflet`) para não depender de CDN externo.
 
 ## API
 
