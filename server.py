@@ -4,75 +4,14 @@ import json
 import math
 import os
 import secrets
-import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "data.db")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
+import db
+
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 DEFAULT_RADIUS_M = 500
 MAX_IMAGE_BYTES = 6 * 1024 * 1024
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db():
-    conn = get_db()
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS sessions (
-            token TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );
-        CREATE TABLE IF NOT EXISTS spots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            lat REAL NOT NULL,
-            lng REAL NOT NULL,
-            photo TEXT NOT NULL,
-            radius_m INTEGER NOT NULL DEFAULT 500,
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );
-        CREATE TABLE IF NOT EXISTS likes (
-            spot_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            created_at TEXT DEFAULT (datetime('now')),
-            PRIMARY KEY (spot_id, user_id),
-            FOREIGN KEY (spot_id) REFERENCES spots(id),
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );
-        CREATE TABLE IF NOT EXISTS comments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            spot_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            text TEXT NOT NULL,
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (spot_id) REFERENCES spots(id),
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );
-        """
-    )
-    conn.commit()
-    conn.close()
 
 
 def haversine_m(lat1, lng1, lat2, lng2):
@@ -100,8 +39,9 @@ def verify_password(password, stored):
 def get_user_by_token(token):
     if not token:
         return None
-    conn = get_db()
-    row = conn.execute(
+    conn = db.connect()
+    row = db.execute(
+        conn,
         "SELECT u.* FROM users u JOIN sessions s ON s.user_id = u.id WHERE s.token = ?",
         (token,),
     ).fetchone()
@@ -110,18 +50,16 @@ def get_user_by_token(token):
 
 
 def public_spot(spot, viewer_id=None, viewer_lat=None, viewer_lng=None):
-    conn = get_db()
-    user = conn.execute("SELECT username FROM users WHERE id = ?", (spot["user_id"],)).fetchone()
-    like_count = conn.execute(
-        "SELECT COUNT(*) FROM likes WHERE spot_id = ?", (spot["id"],)
-    ).fetchone()[0]
+    conn = db.connect()
+    user = db.execute(conn, "SELECT username FROM users WHERE id = ?", (spot["user_id"],)).fetchone()
+    like_count = db.execute(conn, "SELECT COUNT(*) FROM likes WHERE spot_id = ?", (spot["id"],)).fetchone()[0]
     liked = False
     if viewer_id:
-        liked = conn.execute(
-            "SELECT 1 FROM likes WHERE spot_id = ? AND user_id = ?",
-            (spot["id"], viewer_id),
+        liked = db.execute(
+            conn, "SELECT 1 FROM likes WHERE spot_id = ? AND user_id = ?", (spot["id"], viewer_id)
         ).fetchone() is not None
-    comments = conn.execute(
+    comments = db.execute(
+        conn,
         """SELECT c.id, c.text, c.created_at, u.username
            FROM comments c JOIN users u ON u.id = c.user_id
            WHERE c.spot_id = ? ORDER BY c.created_at ASC""",
@@ -135,13 +73,17 @@ def public_spot(spot, viewer_id=None, viewer_lat=None, viewer_lng=None):
         distance_m = round(haversine_m(viewer_lat, viewer_lng, spot["lat"], spot["lng"]), 1)
         unlocked = distance_m <= spot["radius_m"]
 
+    photo = None
+    if unlocked:
+        photo = f"/api/spots/{spot['id']}/photo?lat={viewer_lat}&lng={viewer_lng}"
+
     return {
         "id": spot["id"],
         "name": spot["name"],
         "description": spot["description"],
         "lat": spot["lat"],
         "lng": spot["lng"],
-        "photo": spot["photo"] if unlocked else None,
+        "photo": photo,
         "radius_m": spot["radius_m"],
         "author": user["username"] if user else "unknown",
         "created_at": spot["created_at"],
@@ -163,8 +105,16 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+    def _secure(self):
+        return self.headers.get("X-Forwarded-Proto", "http") == "https"
+
     def _send(self, status, data, content_type="application/json"):
-        body = json.dumps(data).encode("utf-8") if isinstance(data, (dict, list)) else data
+        if isinstance(data, (dict, list)):
+            body = json.dumps(data).encode("utf-8")
+        elif isinstance(data, bytes):
+            body = data
+        else:
+            body = str(data).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         if self.pending_cookie:
@@ -219,6 +169,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_me()
             elif method == "GET" and path == "/api/spots":
                 self.api_spots(query)
+            elif method == "GET" and path.startswith("/api/spots/") and path.endswith("/photo"):
+                self.api_spot_photo(query)
             elif method == "POST" and path == "/api/register":
                 self.api_register()
             elif method == "POST" and path == "/api/login":
@@ -245,6 +197,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(200, {"user": {"id": user["id"], "username": user["username"]}})
 
+    def _parse_credentials(self):
+        data = self._read_json()
+        username = (data.get("username") or "").strip()
+        password = data.get("password") or ""
+        return username, password, data
+
     def api_register(self):
         data = self._read_json()
         username = (data.get("username") or "").strip()
@@ -253,50 +211,51 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("username deve ter entre 4 e 24 caracteres")
         if len(password) < 4:
             raise ValueError("senha deve ter pelo menos 4 caracteres")
-        conn = get_db()
-        if conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
+        conn = db.connect()
+        if db.execute(conn, "SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
             conn.close()
             raise ValueError("username já existe")
-        cur = conn.execute(
+        user_id = db.insert_id(
+            conn,
             "INSERT INTO users (username, password_hash) VALUES (?, ?)",
             (username, hash_password(password)),
         )
         token = secrets.token_hex(32)
-        conn.execute("INSERT INTO sessions (token, user_id) VALUES (?, ?)", (token, cur.lastrowid))
+        db.execute(conn, "INSERT INTO sessions (token, user_id) VALUES (?, ?)", (token, user_id))
         conn.commit()
         conn.close()
-        self.pending_cookie = f"token={token}; Path=/; HttpOnly"
+        self.pending_cookie = f"token={token}; Path=/; HttpOnly; SameSite=Lax"
+        if self._secure():
+            self.pending_cookie += "; Secure"
         self._send(201, {"token": token, "username": username})
 
     def api_login(self):
         data = self._read_json()
         username = (data.get("username") or "").strip()
         password = data.get("password") or ""
-        conn = get_db()
-        user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        conn = db.connect()
+        user = db.execute(conn, "SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         if not user or not verify_password(password, user["password_hash"]):
             conn.close()
             raise ValueError("credenciais inválidas")
         token = secrets.token_hex(32)
-        conn.execute("INSERT INTO sessions (token, user_id) VALUES (?, ?)", (token, user["id"]))
+        db.execute(conn, "INSERT INTO sessions (token, user_id) VALUES (?, ?)", (token, user["id"]))
         conn.commit()
         conn.close()
-        self.pending_cookie = f"token={token}; Path=/; HttpOnly"
+        self.pending_cookie = f"token={token}; Path=/; HttpOnly; SameSite=Lax"
+        if self._secure():
+            self.pending_cookie += "; Secure"
         self._send(200, {"token": token, "username": username})
 
     def api_logout(self):
         token = self._get_token()
         if token:
-            conn = get_db()
-            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            conn = db.connect()
+            db.execute(conn, "DELETE FROM sessions WHERE token = ?", (token,))
             conn.commit()
             conn.close()
-        self.send_response(200)
-        self.send_header("Set-Cookie", "token=; Max-Age=0; Path=/")
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(b"{}")))
-        self.end_headers()
-        self.wfile.write(b"{}")
+        self.pending_cookie = "token=; Max-Age=0; Path=/"
+        self._send(200, {})
 
     def api_spots(self, query):
         viewer = get_user_by_token(self._get_token())
@@ -306,8 +265,8 @@ class Handler(BaseHTTPRequestHandler):
             lng = float(query.get("lng", [""])[0]) if query.get("lng") else None
         except (ValueError, IndexError):
             raise ValueError("lat/lng inválidos")
-        conn = get_db()
-        rows = conn.execute("SELECT * FROM spots ORDER BY created_at DESC").fetchall()
+        conn = db.connect()
+        rows = db.execute(conn, "SELECT * FROM spots ORDER BY created_at DESC").fetchall()
         conn.close()
         spots = [public_spot(r, viewer_id, lat, lng) for r in rows]
         if lat is None or lng is None:
@@ -324,7 +283,7 @@ class Handler(BaseHTTPRequestHandler):
         description = (data.get("description") or "").strip()
         lat = data.get("lat")
         lng = data.get("lng")
-        photo_b64 = data.get("photo") or ""
+        photo = data.get("photo") or ""
         radius = data.get("radius_m") or DEFAULT_RADIUS_M
         if not name:
             raise ValueError("dê um nome ao lugar")
@@ -338,27 +297,24 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("coordenadas inválidas")
         if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
             raise ValueError("coordenadas fora do intervalo")
-        if not photo_b64.startswith("data:image"):
+        if not photo.startswith("data:image"):
             raise ValueError("foto inválida (use uma imagem)")
-        meta, payload = photo_b64.split(",", 1)
-        ext = "png" if "png" in meta else "jpg"
+        meta, payload = photo.split(",", 1)
+        mime = "png" if "png" in meta else ("webp" if "webp" in meta else "jpeg")
         try:
             raw = base64.b64decode(payload, validate=True)
         except Exception:
             raise ValueError("foto inválida (base64 quebrado)")
         if len(raw) > MAX_IMAGE_BYTES:
             raise ValueError("foto muito grande (máx 6MB)")
-        filename = f"{secrets.token_hex(12)}.{ext}"
-        with open(os.path.join(UPLOAD_DIR, filename), "wb") as f:
-            f.write(raw)
-        conn = get_db()
-        cur = conn.execute(
-            """INSERT INTO spots (user_id, name, description, lat, lng, photo, radius_m)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (user["id"], name, description, lat, lng, f"/uploads/{filename}", radius),
+        conn = db.connect()
+        spot_id = db.insert_id(
+            conn,
+            """INSERT INTO spots (user_id, name, description, lat, lng, photo_b64, photo_mime, radius_m)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user["id"], name, description, lat, lng, payload, mime, radius),
         )
-        conn.commit()
-        spot = conn.execute("SELECT * FROM spots WHERE id = ?", (cur.lastrowid,)).fetchone()
+        spot = db.execute(conn, "SELECT * FROM spots WHERE id = ?", (spot_id,)).fetchone()
         conn.close()
         self._send(201, {"spot": public_spot(spot, user["id"])})
 
@@ -366,36 +322,49 @@ class Handler(BaseHTTPRequestHandler):
         parts = urlparse(self.path).path.strip("/").split("/")
         return int(parts[-2])
 
+    def api_spot_photo(self, query):
+        try:
+            spot_id = self._spot_id_from_path()
+            lat = float(query.get("lat", [""])[0])
+            lng = float(query.get("lng", [""])[0])
+        except (ValueError, IndexError):
+            raise ValueError("lat/lng inválidos")
+        conn = db.connect()
+        spot = db.execute(conn, "SELECT * FROM spots WHERE id = ?", (spot_id,)).fetchone()
+        conn.close()
+        if not spot:
+            self._send(404, {"error": "não existe"})
+            return
+        if haversine_m(lat, lng, spot["lat"], spot["lng"]) > spot["radius_m"]:
+            self._send(403, {"error": "locked"})
+            return
+        try:
+            raw = base64.b64decode(spot["photo_b64"])
+        except Exception:
+            raw = b""
+        self._send(200, raw, content_type=f"image/{spot['photo_mime']}")
+
     def api_like(self):
         user = get_user_by_token(self._get_token())
         if not user:
             self._send(401, {"error": "faça login primeiro"})
             return
         spot_id = self._spot_id_from_path()
-        conn = get_db()
-        if not conn.execute("SELECT 1 FROM spots WHERE id = ?", (spot_id,)).fetchone():
+        conn = db.connect()
+        if not db.execute(conn, "SELECT 1 FROM spots WHERE id = ?", (spot_id,)).fetchone():
             conn.close()
             raise ValueError("spot não existe")
-        existing = conn.execute(
-            "SELECT 1 FROM likes WHERE spot_id = ? AND user_id = ?",
-            (spot_id, user["id"]),
+        existing = db.execute(
+            conn, "SELECT 1 FROM likes WHERE spot_id = ? AND user_id = ?", (spot_id, user["id"])
         ).fetchone()
         if existing:
-            conn.execute(
-                "DELETE FROM likes WHERE spot_id = ? AND user_id = ?",
-                (spot_id, user["id"]),
-            )
+            db.execute(conn, "DELETE FROM likes WHERE spot_id = ? AND user_id = ?", (spot_id, user["id"]))
             liked = False
         else:
-            conn.execute(
-                "INSERT INTO likes (spot_id, user_id) VALUES (?, ?)",
-                (spot_id, user["id"]),
-            )
+            db.execute(conn, "INSERT INTO likes (spot_id, user_id) VALUES (?, ?)", (spot_id, user["id"]))
             liked = True
         conn.commit()
-        count = conn.execute(
-            "SELECT COUNT(*) FROM likes WHERE spot_id = ?", (spot_id,)
-        ).fetchone()[0]
+        count = db.execute(conn, "SELECT COUNT(*) FROM likes WHERE spot_id = ?", (spot_id,)).fetchone()[0]
         conn.close()
         self._send(200, {"liked": liked, "like_count": count})
 
@@ -411,14 +380,11 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("comentário vazio")
         if len(text) > 500:
             raise ValueError("comentário muito longo")
-        conn = get_db()
-        if not conn.execute("SELECT 1 FROM spots WHERE id = ?", (spot_id,)).fetchone():
+        conn = db.connect()
+        if not db.execute(conn, "SELECT 1 FROM spots WHERE id = ?", (spot_id,)).fetchone():
             conn.close()
             raise ValueError("spot não existe")
-        conn.execute(
-            "INSERT INTO comments (spot_id, user_id, text) VALUES (?, ?, ?)",
-            (spot_id, user["id"], text),
-        )
+        db.execute(conn, "INSERT INTO comments (spot_id, user_id, text) VALUES (?, ?, ?)", (spot_id, user["id"], text))
         conn.commit()
         conn.close()
         self._send(201, {"ok": True})
@@ -443,6 +409,7 @@ class Handler(BaseHTTPRequestHandler):
             ".jpeg": "image/jpeg",
             ".gif": "image/gif",
             ".svg": "image/svg+xml",
+            ".webp": "image/webp",
         }.get(ext, "application/octet-stream")
         with open(full, "rb") as f:
             body = f.read()
@@ -454,11 +421,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    init_db()
+    db.init()
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
     server = ThreadingHTTPServer((host, port), Handler)
-    print(f"NearGram rodando em http://{host}:{port}")
+    print(f"NearGram rodando em http://{host}:{port} (db: {'postgres' if db.PG else 'sqlite'})")
     server.serve_forever()
 
 
