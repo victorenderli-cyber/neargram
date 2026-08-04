@@ -183,6 +183,8 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 ### ✔ Concluídos
 - Domínio próprio **`neargram.duckdns.org`** configurado e funcionando (A record + Custom Domain no Render).
 - Endurecimento da tela preta (erro de boot visível, cache SW v2, fallback `app.js`).
+- **Endurecimento do backend (avaliação):** rate limiting em login/registro (429), expiração de sessões (30 dias) + `Max-Age` no cookie, 500 sem vazar detalhes internos, logs de requisição habilitados, consultas em lote (fim do N+1), paginação (`limit`) em `/api/spots`.
+- **Testes automatizados:** `tests/test_api.py` (9 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit.
 
 ---
 
@@ -200,3 +202,42 @@ python server.py
 ```
 
 O banco é criado automaticamente na primeira execução (`db.init()`).
+
+---
+
+## 14. Avaliação do Projeto
+
+### Nota geral: **8/10** — MVP sólido, conceito original e funcional; precisa de endurecimento para escala/produção.
+
+### Pontos fortes
+- **Conceito original e coerente**: geo-fence em rede social é um diferencial claro e bem implementado (bloqueio/revelação por raio, autor sempre vê o próprio).
+- **Zero dependências no backend**: servidor HTTP com biblioteca padrão — fácil de rodar e entender.
+- **Segurança básica correta**: PBKDF2 (120k), cookie `HttpOnly`/`SameSite`/`Secure`, autorização por dono e por raio.
+- **Frontend limpo e autocontido**: JS vanilla com estado centralizado, modais, XSS escapado, Leaflet servido localmente (sem CDN) e PWA instalável.
+- **Camada de banco agnóstica** (SQLite/Postgres) bem isolada em `db.py` — facilita dev/prod.
+- **Deploy automatizado** (Render + auto-deploy no push) e domínio próprio funcionando.
+
+### Pontos fracos / riscos
+1. **Performance (N+1)**: `public_spot()` abre uma conexão nova e faz 3+ consultas **por lugar** — com poucos spots funciona, mas não escala.
+2. **Fotos no banco como base64**: estoura o limite do Postgres free com uso real; ideal é servir por CDN/armazenamento de objetos e guardar só a URL.
+3. **Sem rate limiting**: `/api/login` e `/api/register` são alvo fácil de brute-force.
+4. **Sessões sem expiração**: a tabela `sessions` cresce indefinidamente e tokens nunca revogam (exceto logout).
+5. **Vazamento de erro**: `internal error: {e}` devolve detalhes internos ao cliente em produção.
+6. **Sem logs**: `log_message` está desativado — impossível depurar em produção.
+7. **Mapeamento/payload**: `_read_json` carrega o corpo inteiro em memória e `serve_static` lê arquivo inteiro por request.
+8. **Área do mapa escura**: se o OSM/tiles estiverem bloqueados pela rede, o mapa vira um bloco preto (pode parecer tela preta).
+9. **Sem paginação**: o feed busca e renderiza todos os spots de uma vez.
+10. **Sem testes automatizados**: não há testes unitários/e2e.
+
+### Recomendações por prioridade
+| Prioridade | Ação | Status |
+|---|---|---|
+| Alta | Rate limiting em login/registro; expiração de sessão; parar de vazar erros internos | ✔ feito |
+| Alta | Migrar fotos para armazenamento de objetos (ex.: Cloudinary/S3) com URL no banco | pendente |
+| Média | Paginar `/api/spots` e otimizar as consultas (join em vez de N+1) | ✔ feito (limite no API; pooling ainda pendente) |
+| Média | Adicionar testes básicos (`unittest` em `tests/test_api.py`) | ✔ feito |
+| Média | Logging de requisições | ✔ feito (stderr; estruturado segue pendente) |
+| Baixa | Compressão da imagem no cliente antes do upload; gzip nas respostas | pendente |
+
+### Conclusão
+O NearGram entrega exatamente a proposta (ver só perto do lugar) com código pequeno, limpo e seguro o suficiente para um MVP em plano free. Antes de virar produto com usuários reais, priorize **rate limiting**, **armazenamento de imagens fora do banco** e **paginação**.

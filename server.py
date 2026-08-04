@@ -4,6 +4,12 @@ import json
 import math
 import os
 import secrets
+import sys
+import threading
+import time
+import traceback
+from collections import deque
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -12,6 +18,11 @@ import db
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 DEFAULT_RADIUS_M = 500
 MAX_IMAGE_BYTES = 6 * 1024 * 1024
+SESSION_MAX_DAYS = 30
+RATE_LIMIT_MAX = 10
+RATE_LIMIT_WINDOW = 60
+DEFAULT_SPOT_LIMIT = 100
+MAX_SPOT_LIMIT = 500
 
 
 def haversine_m(lat1, lng1, lat2, lng2):
@@ -36,14 +47,42 @@ def verify_password(password, stored):
     return secrets.compare_digest(check, digest)
 
 
+_rate_limit_lock = threading.Lock()
+_rate_limit_buckets = {}
+
+
+def _rate_limited(key):
+    now = time.monotonic()
+    with _rate_limit_lock:
+        bucket = _rate_limit_buckets.get(key)
+        if bucket is None:
+            bucket = deque()
+            _rate_limit_buckets[key] = bucket
+        while bucket and now - bucket[0] > RATE_LIMIT_WINDOW:
+            bucket.popleft()
+        if len(bucket) >= RATE_LIMIT_MAX:
+            return True
+        bucket.append(now)
+        return False
+
+
+def _session_cutoff():
+    return (datetime.now(timezone.utc) - timedelta(days=SESSION_MAX_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _prune_sessions(conn, user_id):
+    db.execute(conn, "DELETE FROM sessions WHERE user_id = ? AND created_at < ?", (user_id, _session_cutoff()))
+
+
 def get_user_by_token(token):
     if not token:
         return None
     conn = db.connect()
     row = db.execute(
         conn,
-        "SELECT u.* FROM users u JOIN sessions s ON s.user_id = u.id WHERE s.token = ?",
-        (token,),
+        "SELECT u.* FROM users u JOIN sessions s ON s.user_id = u.id "
+        "WHERE s.token = ? AND s.created_at >= ?",
+        (token, _session_cutoff()),
     ).fetchone()
     conn.close()
     return row
@@ -102,12 +141,102 @@ def public_spot(spot, viewer_id=None, viewer_lat=None, viewer_lng=None, as_autho
     }
 
 
+def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
+    if not rows:
+        return []
+    conn = db.connect()
+    try:
+        ids = tuple(r["id"] for r in rows)
+        ph = ",".join(["?"] * len(ids))
+
+        user_ids = tuple({r["user_id"] for r in rows})
+        users = {}
+        if user_ids:
+            uph = ",".join(["?"] * len(user_ids))
+            for row in db.execute(
+                conn, f"SELECT id, username FROM users WHERE id IN ({uph})", user_ids
+            ):
+                users[row["id"]] = row["username"]
+
+        like_counts = {}
+        for row in db.execute(
+            conn,
+            f"SELECT spot_id, COUNT(*) AS c FROM likes WHERE spot_id IN ({ph}) GROUP BY spot_id",
+            ids,
+        ):
+            like_counts[row["spot_id"]] = row["c"]
+
+        liked_ids = set()
+        if viewer_id:
+            for row in db.execute(
+                conn,
+                f"SELECT spot_id FROM likes WHERE user_id = ? AND spot_id IN ({ph})",
+                (viewer_id,) + ids,
+            ):
+                liked_ids.add(row["spot_id"])
+
+        comments = {}
+        for row in db.execute(
+            conn,
+            f"""SELECT c.spot_id, c.id, c.text, c.created_at, u.username
+                FROM comments c JOIN users u ON u.id = c.user_id
+                WHERE c.spot_id IN ({ph}) ORDER BY c.created_at ASC""",
+            ids,
+        ):
+            comments.setdefault(row["spot_id"], []).append(
+                {"id": row["id"], "text": row["text"], "author": row["username"], "created_at": row["created_at"]}
+            )
+    finally:
+        conn.close()
+
+    out = []
+    for s in rows:
+        distance_m = None
+        unlocked = None
+        if viewer_lat is not None and viewer_lng is not None:
+            distance_m = round(haversine_m(viewer_lat, viewer_lng, s["lat"], s["lng"]), 1)
+            unlocked = distance_m <= s["radius_m"]
+        is_author = bool(viewer_id and viewer_id == s["user_id"])
+        photo = None
+        if as_author or is_author:
+            unlocked = True
+            photo = f"/api/spots/{s['id']}/photo"
+        elif unlocked:
+            photo = f"/api/spots/{s['id']}/photo?lat={viewer_lat}&lng={viewer_lng}"
+        out.append({
+            "id": s["id"],
+            "name": s["name"],
+            "description": s["description"],
+            "lat": s["lat"],
+            "lng": s["lng"],
+            "photo": photo,
+            "radius_m": s["radius_m"],
+            "author": users.get(s["user_id"], "unknown"),
+            "mine": is_author,
+            "created_at": s["created_at"],
+            "like_count": like_counts.get(s["id"], 0),
+            "liked": s["id"] in liked_ids,
+            "comments": comments.get(s["id"], []),
+            "distance_m": distance_m,
+            "unlocked": unlocked,
+        })
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "NearGram/1.0"
     pending_cookie = None
 
     def log_message(self, format, *args):
-        pass
+        sys.stderr.write(
+            f"{self.log_date_time_string()} {self.client_address[0]} \"{format % args}\"\n"
+        )
+
+    def _client_ip(self):
+        forwarded = self.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip() or self.client_address[0]
+        return self.client_address[0]
 
     def _secure(self):
         return self.headers.get("X-Forwarded-Proto", "http") == "https"
@@ -202,8 +331,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, {"error": "endpoint not found"})
         except ValueError as e:
             self._send(400, {"error": str(e)})
-        except Exception as e:
-            self._send(500, {"error": f"internal error: {e}"})
+        except Exception:
+            traceback.print_exc()
+            self._send(500, {"error": "erro interno"})
 
     def api_me(self):
         user = get_user_by_token(self._get_token())
@@ -221,11 +351,11 @@ class Handler(BaseHTTPRequestHandler):
         rows = db.execute(
             conn, "SELECT * FROM spots WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)
         ).fetchall()
-        spots = [public_spot(r, user["id"], as_author=True) for r in rows]
+        conn.close()
+        spots = _bulk_public(rows, user["id"], None, None, as_author=True)
         spots_count = len(spots)
         likes_received = sum(s["like_count"] for s in spots)
         comments_received = sum(len(s["comments"]) for s in spots)
-        conn.close()
         self._send(200, {
             "user": {"id": user["id"], "username": user["username"]},
             "stats": {"spots": spots_count, "likes": likes_received, "comments": comments_received},
@@ -262,6 +392,9 @@ class Handler(BaseHTTPRequestHandler):
         return username, password, data
 
     def api_register(self):
+        if _rate_limited(f"reg:{self._client_ip()}"):
+            self._send(429, {"error": "muitas tentativas, aguarde um pouco"})
+            return
         data = self._read_json()
         username = (data.get("username") or "").strip()
         password = data.get("password") or ""
@@ -278,16 +411,20 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO users (username, password_hash) VALUES (?, ?)",
             (username, hash_password(password)),
         )
+        _prune_sessions(conn, user_id)
         token = secrets.token_hex(32)
         db.execute(conn, "INSERT INTO sessions (token, user_id) VALUES (?, ?)", (token, user_id))
         conn.commit()
         conn.close()
-        self.pending_cookie = f"token={token}; Path=/; HttpOnly; SameSite=Lax"
+        self.pending_cookie = f"token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_MAX_DAYS * 86400}"
         if self._secure():
             self.pending_cookie += "; Secure"
         self._send(201, {"token": token, "username": username})
 
     def api_login(self):
+        if _rate_limited(f"login:{self._client_ip()}"):
+            self._send(429, {"error": "muitas tentativas, aguarde um pouco"})
+            return
         data = self._read_json()
         username = (data.get("username") or "").strip()
         password = data.get("password") or ""
@@ -296,11 +433,12 @@ class Handler(BaseHTTPRequestHandler):
         if not user or not verify_password(password, user["password_hash"]):
             conn.close()
             raise ValueError("credenciais inválidas")
+        _prune_sessions(conn, user["id"])
         token = secrets.token_hex(32)
         db.execute(conn, "INSERT INTO sessions (token, user_id) VALUES (?, ?)", (token, user["id"]))
         conn.commit()
         conn.close()
-        self.pending_cookie = f"token={token}; Path=/; HttpOnly; SameSite=Lax"
+        self.pending_cookie = f"token={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_MAX_DAYS * 86400}"
         if self._secure():
             self.pending_cookie += "; Secure"
         self._send(200, {"token": token, "username": username})
@@ -323,13 +461,21 @@ class Handler(BaseHTTPRequestHandler):
             lng = float(query.get("lng", [""])[0]) if query.get("lng") else None
         except (ValueError, IndexError):
             raise ValueError("lat/lng inválidos")
+        limit = DEFAULT_SPOT_LIMIT
+        if query.get("limit"):
+            try:
+                limit = max(1, min(int(query["limit"][0]), MAX_SPOT_LIMIT))
+            except ValueError:
+                raise ValueError("limit inválido")
         conn = db.connect()
-        rows = db.execute(conn, "SELECT * FROM spots ORDER BY created_at DESC").fetchall()
+        rows = db.execute(
+            conn, "SELECT * FROM spots ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
         conn.close()
-        spots = [public_spot(r, viewer_id, lat, lng) for r in rows]
+        spots = _bulk_public(rows, viewer_id, lat, lng)
         if lat is None or lng is None:
             spots = [dict(s, unlocked=None, distance_m=None) for s in spots]
-        self._send(200, {"spots": spots, "radius_m": DEFAULT_RADIUS_M})
+        self._send(200, {"spots": spots, "radius_m": DEFAULT_RADIUS_M, "has_more": False})
 
     def api_create_spot(self):
         user = get_user_by_token(self._get_token())
