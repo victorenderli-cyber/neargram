@@ -10,7 +10,10 @@ PG = bool(os.environ.get("DATABASE_URL"))
 def connect():
     if PG:
         import psycopg2
-        return psycopg2.connect(os.environ["DATABASE_URL"])
+        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        with conn.cursor() as cur:
+            cur.execute("SET search_path TO neargram, public")
+        return conn
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -116,6 +119,10 @@ def schema():
 
 def init():
     conn = connect()
+    if PG:
+        with conn.cursor() as cur:
+            cur.execute("CREATE SCHEMA IF NOT EXISTS neargram")
+        conn.commit()
     for stmt in schema():
         execute(conn, stmt)
     conn.commit()
