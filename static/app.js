@@ -19,6 +19,7 @@ async function api(path, opts = {}) {
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
     ...opts,
+    method: opts.method || "GET",
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
@@ -59,6 +60,48 @@ $("btn-logout").addEventListener("click", async () => {
   state.user = null;
   showAuth();
 });
+
+$("btn-profile").addEventListener("click", async () => {
+  try {
+    const p = await api("/api/profile");
+    $("profile-title").textContent = "@" + p.user.username;
+    $("profile-stats").innerHTML = `
+      <div class="stat"><b>${p.stats.spots}</b><span>fotos</span></div>
+      <div class="stat"><b>${p.stats.likes}</b><span>curtidas</span></div>
+      <div class="stat"><b>${p.stats.comments}</b><span>comentários</span></div>`;
+    const grid = $("profile-spots");
+    grid.innerHTML = "";
+    $("profile-empty").classList.toggle("hidden", p.spots.length > 0);
+    p.spots.forEach((s) => {
+      const item = document.createElement("div");
+      item.className = "pg-item";
+      item.innerHTML = `
+        ${s.photo ? `<img src="${s.photo}" />` : `<div class="pg-lock">🔒</div>`}
+        <button class="pg-del" title="Excluir">✕</button>`;
+      item.querySelector(".pg-del").addEventListener("click", (e) => {
+        e.stopPropagation();
+        deleteSpot(s.id);
+      });
+      item.addEventListener("click", () => openSpotDetail(s.id));
+      grid.appendChild(item);
+    });
+    showModal("modal-profile");
+  } catch (e) {
+    alert(e.message);
+  }
+});
+
+async function deleteSpot(id) {
+  if (!confirm("Excluir esta foto?")) return;
+  try {
+    await api(`/api/spots/${id}`, { method: "DELETE" });
+    hideModal("modal-profile");
+    hideModal("modal-spot");
+    refreshSpots();
+  } catch (e) {
+    alert(e.message);
+  }
+}
 
 /* ---------------- Boot ---------------- */
 async function boot() {
@@ -304,6 +347,10 @@ async function showSpotModal(spot) {
   likeBtn.textContent = spot.liked ? "♥ Você curtiu" : `♥ Curtir`;
   $("like-count").textContent = spot.like_count;
   likeBtn.classList.toggle("liked", spot.liked);
+
+  const delBtn = $("btn-delete-spot");
+  delBtn.classList.toggle("hidden", !spot.mine);
+  delBtn.onclick = () => deleteSpot(spot.id);
 
   const cl = $("comments-list");
   cl.innerHTML = spot.comments.length

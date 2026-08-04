@@ -49,7 +49,7 @@ def get_user_by_token(token):
     return row
 
 
-def public_spot(spot, viewer_id=None, viewer_lat=None, viewer_lng=None):
+def public_spot(spot, viewer_id=None, viewer_lat=None, viewer_lng=None, as_author=False):
     conn = db.connect()
     user = db.execute(conn, "SELECT username FROM users WHERE id = ?", (spot["user_id"],)).fetchone()
     like_count = db.execute(conn, "SELECT COUNT(*) FROM likes WHERE spot_id = ?", (spot["id"],)).fetchone()[0]
@@ -74,7 +74,10 @@ def public_spot(spot, viewer_id=None, viewer_lat=None, viewer_lng=None):
         unlocked = distance_m <= spot["radius_m"]
 
     photo = None
-    if unlocked:
+    if as_author:
+        unlocked = True
+        photo = f"/api/spots/{spot['id']}/photo"
+    elif unlocked:
         photo = f"/api/spots/{spot['id']}/photo?lat={viewer_lat}&lng={viewer_lng}"
 
     return {
@@ -86,6 +89,7 @@ def public_spot(spot, viewer_id=None, viewer_lat=None, viewer_lng=None):
         "photo": photo,
         "radius_m": spot["radius_m"],
         "author": user["username"] if user else "unknown",
+        "mine": bool(viewer_id and viewer_id == spot["user_id"]),
         "created_at": spot["created_at"],
         "like_count": like_count,
         "liked": liked,
@@ -161,12 +165,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(404, {"error": "not found"})
 
+    def do_DELETE(self):
+        path = urlparse(self.path).path
+        if path.startswith("/api/"):
+            self.handle_api("DELETE")
+            return
+        self._send(404, {"error": "not found"})
+
     def handle_api(self, method):
         path = urlparse(self.path).path
         query = parse_qs(urlparse(self.path).query)
         try:
             if method == "GET" and path == "/api/me":
                 self.api_me()
+            elif method == "GET" and path == "/api/profile":
+                self.api_profile()
             elif method == "GET" and path == "/api/spots":
                 self.api_spots(query)
             elif method == "GET" and path.startswith("/api/spots/") and path.endswith("/photo"):
@@ -183,6 +196,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_like()
             elif method == "POST" and path.startswith("/api/spots/") and path.endswith("/comments"):
                 self.api_comment()
+            elif method == "DELETE" and path.startswith("/api/spots/"):
+                self.api_delete_spot()
             else:
                 self._send(404, {"error": "endpoint not found"})
         except ValueError as e:
@@ -196,6 +211,49 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"user": None})
             return
         self._send(200, {"user": {"id": user["id"], "username": user["username"]}})
+
+    def api_profile(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        conn = db.connect()
+        rows = db.execute(
+            conn, "SELECT * FROM spots WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)
+        ).fetchall()
+        spots = [public_spot(r, user["id"], as_author=True) for r in rows]
+        spots_count = len(spots)
+        likes_received = sum(s["like_count"] for s in spots)
+        comments_received = sum(len(s["comments"]) for s in spots)
+        conn.close()
+        self._send(200, {
+            "user": {"id": user["id"], "username": user["username"]},
+            "stats": {"spots": spots_count, "likes": likes_received, "comments": comments_received},
+            "spots": spots,
+        })
+
+    def api_delete_spot(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        try:
+            spot_id = int(urlparse(self.path).path.strip("/").split("/")[-1])
+        except ValueError:
+            raise ValueError("id inválido")
+        conn = db.connect()
+        spot = db.execute(conn, "SELECT id, user_id FROM spots WHERE id = ?", (spot_id,)).fetchone()
+        if not spot:
+            conn.close()
+            raise ValueError("spot não existe")
+        if spot["user_id"] != user["id"]:
+            conn.close()
+            self._send(403, {"error": "você só pode excluir suas próprias fotos"})
+            return
+        db.execute(conn, "DELETE FROM spots WHERE id = ?", (spot_id,))
+        conn.commit()
+        conn.close()
+        self._send(200, {"ok": True})
 
     def _parse_credentials(self):
         data = self._read_json()
@@ -323,10 +381,11 @@ class Handler(BaseHTTPRequestHandler):
         return int(parts[-2])
 
     def api_spot_photo(self, query):
+        viewer = get_user_by_token(self._get_token())
         try:
             spot_id = self._spot_id_from_path()
-            lat = float(query.get("lat", [""])[0])
-            lng = float(query.get("lng", [""])[0])
+            lat = float(query.get("lat", [""])[0]) if query.get("lat") else None
+            lng = float(query.get("lng", [""])[0]) if query.get("lng") else None
         except (ValueError, IndexError):
             raise ValueError("lat/lng inválidos")
         conn = db.connect()
@@ -335,9 +394,14 @@ class Handler(BaseHTTPRequestHandler):
         if not spot:
             self._send(404, {"error": "não existe"})
             return
-        if haversine_m(lat, lng, spot["lat"], spot["lng"]) > spot["radius_m"]:
-            self._send(403, {"error": "locked"})
-            return
+        is_author = viewer is not None and viewer["id"] == spot["user_id"]
+        if not is_author:
+            if lat is None or lng is None:
+                self._send(403, {"error": "locked"})
+                return
+            if haversine_m(lat, lng, spot["lat"], spot["lng"]) > spot["radius_m"]:
+                self._send(403, {"error": "locked"})
+                return
         try:
             raw = base64.b64decode(spot["photo_b64"])
         except Exception:
