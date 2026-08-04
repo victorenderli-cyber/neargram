@@ -56,14 +56,14 @@ $("auth-form").addEventListener("submit", async (e) => {
 });
 
 $("btn-logout").addEventListener("click", async () => {
-  await api("/api/logout", { method: "POST" });
+  await api("/logout", { method: "POST" });
   state.user = null;
   showAuth();
 });
 
 $("btn-profile").addEventListener("click", async () => {
   try {
-    const p = await api("/api/profile");
+    const p = await api("/profile");
     $("profile-title").textContent = "@" + p.user.username;
     $("profile-stats").innerHTML = `
       <div class="stat"><b>${p.stats.spots}</b><span>fotos</span></div>
@@ -94,7 +94,7 @@ $("btn-profile").addEventListener("click", async () => {
 async function deleteSpot(id) {
   if (!confirm("Excluir esta foto?")) return;
   try {
-    await api(`/api/spots/${id}`, { method: "DELETE" });
+    await api(`/spots/${id}`, { method: "DELETE" });
     hideModal("modal-profile");
     hideModal("modal-spot");
     refreshSpots();
@@ -105,7 +105,7 @@ async function deleteSpot(id) {
 
 /* ---------------- Boot ---------------- */
 async function boot() {
-  const me = await api("/api/me");
+  const me = await api("/me");
   if (!me.user) return showAuth();
   state.user = me.user;
   showApp();
@@ -223,7 +223,7 @@ async function refreshSpots() {
   if (!state.currentPos) return;
   try {
     const q = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}`;
-    const data = await api("/api/spots" + q);
+    const data = await api("/spots" + q);
     state.spots = data.spots;
     state.radius = data.radius_m;
     renderMapMarkers();
@@ -319,7 +319,7 @@ async function openSpotDetail(id) {
   state.selectedSpotId = id;
   try {
     const q = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}`;
-    const data = await api("/api/spots" + q);
+    const data = await api("/spots" + q);
     const spot = data.spots.find((s) => s.id === id);
     if (!spot) return;
     showSpotModal(spot);
@@ -369,7 +369,7 @@ async function showSpotModal(spot) {
 $("btn-like").addEventListener("click", async () => {
   if (!state.user) return showError("publish-error", "faça login");
   const id = state.selectedSpotId;
-  const res = await api(`/api/spots/${id}/like`, { method: "POST", body: {} });
+  const res = await api(`/spots/${id}/like`, { method: "POST", body: {} });
   $("btn-like").textContent = res.liked ? "♥ Curtido" : "♥ Curtir";
   $("like-count").textContent = res.like_count;
   $("btn-like").classList.toggle("liked", res.liked);
@@ -380,7 +380,7 @@ $("comment-form").addEventListener("submit", async (e) => {
   if (!state.user) return;
   const text = $("comment-input").value.trim();
   if (!text) return;
-  await api(`/api/spots/${state.selectedSpotId}/comments`, { method: "POST", body: { text } });
+  await api(`/spots/${state.selectedSpotId}/comments`, { method: "POST", body: { text } });
   $("comment-input").value = "";
   openSpotDetail(state.selectedSpotId);
 });
@@ -433,7 +433,7 @@ $("btn-publish").addEventListener("click", async () => {
     radius_m: parseInt($("n-radius").value, 10),
   };
   try {
-    await api("/api/spots", { method: "POST", body });
+    await api("/spots", { method: "POST", body });
     hideModal("modal-new");
     refreshSpots();
   } catch (err) {

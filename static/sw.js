@@ -1,4 +1,4 @@
-const CACHE = "neargram-v2";
+const CACHE = "neargram-v3";
 const SHELL = [
   "/",
   "/index.html",
