@@ -21,6 +21,24 @@ body {
 
 .hidden { display: none !important; }
 
+#fatal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 32px;
+  background: var(--bg);
+  color: var(--text);
+}
+#fatal b { font-size: 18px; }
+#fatal p { color: var(--muted); font-size: 14px; max-width: 480px; line-height: 1.5; }
+#fatal button { background: var(--grad); color: #fff; font-size: 15px; padding: 12px 22px; }
+
 button {
   cursor: pointer;
   font-family: inherit;

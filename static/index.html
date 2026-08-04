@@ -18,6 +18,8 @@
 </head>
 <body>
 
+<div id="fatal" class="hidden"></div>
+
 <div id="auth-view" class="hidden">
   <div class="auth-card">
     <div class="logo">Near<span>Gram</span></div>
@@ -140,6 +142,14 @@
 </div>
 
 <script src="/vendor/leaflet/leaflet.js"></script>
-<script src="app.js"></script>
+<script src="app.js" onerror="bootFailed('O arquivo do aplicativo não carregou (app.js).')"></script>
+<script>
+function bootFailed(msg) {
+  const el = document.getElementById("fatal");
+  if (!el) return;
+  el.classList.remove("hidden");
+  el.innerHTML = '<b>⚠️ Não foi possível carregar o NearGram.</b><p>' + String(msg) + '</p><button class="btn-primary" onclick="location.reload()">🔄 Recarregar</button>';
+}
+</script>
 </body>
 </html>

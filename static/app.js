@@ -485,13 +485,13 @@ $("btn-locate").addEventListener("click", () => {
 });
 
 function fatal(msg) {
-  const el = $("map-loading");
-  el.style.display = "flex";
-  el.textContent = (msg || "Falha ao inicializar o mapa.") + " Verifique sua conexão e recarregue.";
+  const el = $("fatal");
+  el.classList.remove("hidden");
+  el.innerHTML = `<b>⚠️ Não foi possível carregar o NearGram.</b>
+    <p>${esc(msg || "Falha ao inicializar o aplicativo.")}</p>`;
   const btn = document.createElement("button");
   btn.className = "btn-primary";
   btn.textContent = "🔄 Recarregar";
-  btn.style.marginLeft = "10px";
   btn.onclick = () => location.reload();
   el.appendChild(btn);
 }
