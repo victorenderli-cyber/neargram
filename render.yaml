@@ -7,6 +7,4 @@ services:
     startCommand: python server.py
     healthCheckPath: /
     autoDeploy: true
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.14.6
+    pythonVersion: 3.12.4
