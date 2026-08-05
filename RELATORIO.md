@@ -201,8 +201,7 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 - Código publicado idêntico ao local.
 - **Domínio próprio ativo:** <https://neargram.duckdns.org> (site, PWA, API e SSL verificados — `200`).
 - Última correção em produção: **endurecimento da tela preta** — limpeza de cache do service worker (`v2`), erro de boot visível (overlay `#fatal`) e fallback se `app.js` não carregar.
-- **Melhorias aplicadas (a publicar):** paginação do feed (`has_more`), clusters no mapa, busca ordenada por proximidade, editar spot, excluir comentário, excluir conta, toasts, progresso de upload, botão instalar PWA, log estruturado JSON e pooling Postgres (SW v6, 23 testes).
-- **Últimas melhorias (a publicar):** círculo do raio de desbloqueio no mapa, autoload do feed, busca com debounce, compartilhar via Web Share API, alterar senha, aviso de nova versão do app (SW v7), skeleton loading, tempo relativo em comentários/notificações, índices no banco e `theme-color` dinâmico.
+- **Melhorias a publicar (SW v11, 31 testes):** mapa com toggle Satélite/Mapa (Esri + rótulos + OSM), barra de escala, popup de prévia nos marcadores (thumbnail, status, distância, botão "Ver detalhes"), marcador "você" com pulso, marcadores desbloqueados com hover, controles do Leaflet no tema escuro, CSP com OSM de volta.
 
 ---
 
@@ -227,7 +226,8 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `8a79fce` | **Melhorias:** rate limit por usuário, `has_more` consistente com ordenação por proximidade, SW não cacha tiles CartoDB, preconnect + acessibilidade (aria-labels, `role="dialog"`, `aria-live`), manifest com shortcuts e deep-link `?action=`, compressão WebP com fallback. SW v9. 26 testes |
 | `c08726c` | **Mapa em modo satélite:** Esri World Imagery + camada de rótulos (CSP/preconnect/SW atualizados, OSM removido). SW v10 |
 | `0f67b0e` | **Melhorias:** validação de username (regex `[A-Za-z0-9_]{4,24}`, unicidade case-insensitive), senha mínima 6 (registro e troca), avisos offline/online, `minlength`/`pattern` no registro, CSP sem OSM. 28 testes |
-| *(atual)* | **Melhorias:** editar comentário (PATCH `/api/comments/{id}`), listas de seguidores/seguindo no perfil (avatares clicáveis), `mine` nos comentários (API), rate limit na busca, Cache-Control por tipo (HTML/JSON `no-cache`, estáticos 1 dia). 31 testes |
+| `58ada48` | **Melhorias:** editar comentário (PATCH `/api/comments/{id}`), listas de seguidores/seguindo no perfil (avatares clicáveis), `mine` nos comentários (API), rate limit na busca, Cache-Control por tipo (HTML/JSON `no-cache`, estáticos 1 dia). 31 testes |
+| *(atual)* | **Mapa:** toggle Satélite/Mapa (Esri World Imagery + rótulos + OSM), barra de escala, popup de prévia nos marcadores (thumbnail, status ✓/🔒, distância, botão "Ver detalhes"), marcador "você" com pulso, hover nos marcadores, controles Leaflet no tema escuro, CSP com OSM. SW v11. 31 testes |
 
 ---
 

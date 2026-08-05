@@ -203,6 +203,20 @@ main {
   border-radius: 50%;
   box-shadow: 0 0 10px rgba(49,196,110,.9);
 }
+.marker-you::after {
+  content: "";
+  position: absolute; inset: -6px;
+  border-radius: 50%;
+  background: rgba(49,196,110,.35);
+  animation: pulse 2s ease-out infinite;
+}
+@keyframes pulse {
+  0% { transform: scale(.7); opacity: 1; }
+  70% { transform: scale(1.7); opacity: 0; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+.marker-unlocked, .marker-locked { transition: transform .12s ease, box-shadow .12s ease; }
+.marker-unlocked:hover, .marker-locked:hover { transform: scale(1.12); z-index: 1000 !important; }
 .marker-locked {
   width: 34px; height: 34px;
   display: flex; align-items: center; justify-content: center;
@@ -223,6 +237,37 @@ main {
 }
 .marker-unlocked img { width: 100%; height: 100%; object-fit: cover; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Popup de prévia no mapa ---------- */
+.popup-box { display: flex; gap: 10px; align-items: flex-start; }
+.popup-thumb { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; flex: none; background: #222; }
+.popup-thumb.locked { display: flex; align-items: center; justify-content: center; font-size: 20px; }
+.popup-info { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.popup-sub { font-size: 12px; color: var(--muted); }
+.popup-status { font-size: 12px; color: var(--muted); }
+.popup-status.ok { color: var(--ok); font-weight: 700; }
+.popup-open { margin-top: 4px; font-size: 12px; padding: 6px 10px; }
+html[data-theme="light"] .popup-thumb { background: #ececf2; }
+
+/* ---------- Controles Leaflet (tema escuro) ---------- */
+.leaflet-control-layers, .leaflet-control-scale-line {
+  background: rgba(15,15,20,.85) !important;
+  color: var(--text) !important;
+  border: 1px solid #2a2a36 !important;
+  border-radius: 8px !important;
+  backdrop-filter: blur(4px);
+}
+.leaflet-control-layers-expanded { padding: 8px !important; }
+.leaflet-control-layers a { color: var(--text); }
+.leaflet-control-layers input { margin-right: 6px; }
+.leaflet-control-layers label { font-size: 13px; color: var(--text); }
+.leaflet-control-scale-line { color: var(--text) !important; background: rgba(15,15,20,.7) !important; }
+html[data-theme="light"] .leaflet-control-layers, html[data-theme="light"] .leaflet-control-scale-line {
+  background: rgba(255,255,255,.9) !important;
+  border-color: #d5d5dd !important;
+  color: var(--text) !important;
+}
+html[data-theme="light"] .leaflet-control-layers label { color: var(--text); }
 
 /* ---------- Feed ---------- */
 #feed-section h2 { font-size: 15px; color: var(--muted); margin: 4px 0 12px; text-transform: uppercase; letter-spacing: 1px; }

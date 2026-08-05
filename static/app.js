@@ -74,6 +74,7 @@ $("btn-install").addEventListener("click", async () => {
 /* ---------------- Tema claro/escuro ---------------- */
 const SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const SATELLITE_LABELS_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
+const STREET_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 function applyTheme(t) {
   document.documentElement.dataset.theme = t;
@@ -83,13 +84,23 @@ function applyTheme(t) {
   if (meta) meta.setAttribute("content", t === "light" ? "#f4f4f7" : "#0f0f14");
 }
 
-function swapTiles() {
+function initTiles() {
   if (!state.map || state.tileLayer) return;
   state.tileLayer = L.tileLayer(SATELLITE_URL, {
     maxZoom: 18,
     attribution: "&copy; Esri, Maxar, Earthstar Geographics",
   }).addTo(state.map);
   state.labelsLayer = L.tileLayer(SATELLITE_LABELS_URL, { maxZoom: 18 }).addTo(state.map);
+  state.streetLayer = L.tileLayer(STREET_URL, {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+  });
+  L.control.layers(
+    { "🛰️ Satélite": state.tileLayer, "🗺️ Mapa": state.streetLayer },
+    null,
+    { position: "topleft" }
+  ).addTo(state.map);
+  L.control.scale({ imperial: false, position: "bottomright" }).addTo(state.map);
 }
 
 $("btn-theme").addEventListener("click", () => {
@@ -419,7 +430,7 @@ function initMap() {
   }
   state.map = L.map("map").setView([-22.9068, -43.1729], 4);
   state.map.attributionControl.setPrefix(false);
-  swapTiles();
+  initTiles();
   $("map-loading").classList.add("hidden");
 }
 
@@ -586,10 +597,39 @@ function renderMapMarkers() {
   state.clusterGroup.clearLayers();
   state.spots.forEach((s) => {
     const marker = L.marker([s.lat, s.lng], { icon: renderIcon(s) });
-    marker.on("click", () => openSpotDetail(s.id));
+    marker.bindPopup(popupHtml(s), { autoClose: true, closeButton: true, maxWidth: 220 });
+    marker.on("click", (e) => e.target.openPopup());
     state.clusterGroup.addLayer(marker);
   });
 }
+
+function popupHtml(s) {
+  const unlocked = s.unlocked === true;
+  const thumb = unlocked && s.photo
+    ? `<img class="popup-thumb" src="${s.photo}" alt="${esc(s.name)}" />`
+    : `<div class="popup-thumb locked">🔒</div>`;
+  const dist = s.distance_m == null ? "" : ` · ${fmtDistance(s.distance_m)}`;
+  const status = unlocked
+    ? `<span class="popup-status ok">✓ Desbloqueada</span>`
+    : `<span class="popup-status">🔒 Fechada</span>`;
+  return `
+    <div class="popup-box">
+      ${thumb}
+      <div class="popup-info">
+        <b>${esc(s.name)}</b>
+        <div class="popup-sub">@${esc(s.author)}${dist}</div>
+        <div>${status}</div>
+        <button class="popup-open btn-primary" data-id="${s.id}">Ver detalhes</button>
+      </div>
+    </div>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".popup-open");
+  if (b) {
+    state.map.closePopup();
+    openSpotDetail(parseInt(b.dataset.id, 10));
+  }
+});
 
 function renderIcon(s) {
   if (s.unlocked && s.photo) {
