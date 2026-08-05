@@ -223,7 +223,10 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `31d621b` | **Novas funcionalidades:** seguidores/follow + feed "Seguindo", busca, notificações, bio+avatar, compartilhar link, denúncia, modo claro/escuro. Fix: botão curtir (span `like-count` era destruído). SW v4. 15 testes |
 | `89be1f3` | **Melhorias:** compressão de imagem no cliente, gzip, cabeçalhos de segurança (CSP), feed ordenado por proximidade, polling de notificações, Web Push opt-in (VAPID), storage Cloudinary opt-in, `tools/gen_vapid.py`. SW v5. 19 testes |
 | `5f51ed6` | **Melhorias:** paginação do feed (`limit`/`offset`/`has_more` + "Carregar mais"), clusters no mapa (markercluster local), busca ordenada por proximidade, editar spot (PATCH), excluir comentário (DELETE), excluir conta (DELETE `/api/me`), toasts, progresso de upload, botão instalar PWA, log estruturado JSON, pooling Postgres. SW v6. 23 testes |
-| *(atual)* | **Melhorias:** rate limit por usuário (curtir/comentar/seguir/publicar), `has_more` consistente com ordenação por proximidade, SW não cacha tiles CartoDB (v9), preconnect/dns-prefetch (CartoDB + Cloudinary), acessibilidade (aria-labels, `role="dialog"`, `aria-live` nos toasts), manifest melhorado (`id`, categories, shortcuts "Nova foto"/"Buscar" com deep-link `?action=`), compressão WebP com fallback JPEG no cliente. 26 testes |
+| `30afa32` | **UX:** tema automático pelo sistema + tiles CartoDB por tema, lightbox de fotos, curtida rápida no card do feed, botão "ver no mapa", `loading="lazy"` nas imagens, gerenciar perfil a partir do perfil público, rate limit em curtir/comentar/follow. SW v8. 25 testes |
+| `8a79fce` | **Melhorias:** rate limit por usuário, `has_more` consistente com ordenação por proximidade, SW não cacha tiles CartoDB, preconnect + acessibilidade (aria-labels, `role="dialog"`, `aria-live`), manifest com shortcuts e deep-link `?action=`, compressão WebP com fallback. SW v9. 26 testes |
+| `c08726c` | **Mapa em modo satélite:** Esri World Imagery + camada de rótulos (CSP/preconnect/SW atualizados, OSM removido). SW v10 |
+| *(atual)* | **Melhorias:** validação de username (regex `[A-Za-z0-9_]{4,24}`, unicidade case-insensitive), senha mínima 6 (registro e troca), avisos de offline/online no cliente, `minlength`/`pattern` no formulário de registro. 28 testes |
 
 ---
 

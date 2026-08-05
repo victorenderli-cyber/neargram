@@ -485,6 +485,29 @@ class ApiTestCase(unittest.TestCase):
         status, _, _ = self.call(f"/api/spots/{spot_id}/like", "POST", {}, b)
         self.assertEqual(status, 200)
 
+    def test_27_register_validation(self):
+        status, _, data = self.call("/api/register", "POST", {"username": "ab", "password": "senha123"})
+        self.assertEqual(status, 400)
+        status, _, data = self.call("/api/register", "POST", {"username": "nome com espaço", "password": "senha123"})
+        self.assertEqual(status, 400)
+        status, _, data = self.call("/api/register", "POST", {"username": "nome<tag>", "password": "senha123"})
+        self.assertEqual(status, 400)
+        status, _, data = self.call("/api/register", "POST", {"username": "curta", "password": "123"})
+        self.assertEqual(status, 400)
+        status, _, data = self.call("/api/register", "POST", {"username": "valid1", "password": "senha123"})
+        self.assertEqual(status, 201)
+        status, _, data = self.call("/api/register", "POST", {"username": "VALID1", "password": "senha123"})
+        self.assertEqual(status, 400)
+
+    def test_28_change_password_min_length(self):
+        a = self.register("tulio")
+        status, _, data = self.call(
+            "/api/profile/password", "POST",
+            {"current_password": "senha123", "new_password": "12345"},
+            a,
+        )
+        self.assertEqual(status, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

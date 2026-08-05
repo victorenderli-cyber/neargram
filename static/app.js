@@ -47,6 +47,15 @@ function toastAction(msg, label, fn) {
   host.appendChild(el);
 }
 
+/* ---------------- Conexão ---------------- */
+window.addEventListener("offline", () => {
+  toast("Sem conexão — seus dados locais continuam salvos", "err");
+});
+window.addEventListener("online", () => {
+  toast("Conectado de novo! Atualizando…", "ok");
+  if (state.user) { refreshSpots(); loadNotifications(); }
+});
+
 /* ---------------- Instalação PWA ---------------- */
 let deferredInstall = null;
 window.addEventListener("beforeinstallprompt", (e) => {

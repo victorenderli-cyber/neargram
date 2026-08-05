@@ -37,8 +37,8 @@
       <button id="tab-register" class="tab">Criar conta</button>
     </div>
     <form id="auth-form">
-      <input id="auth-username" type="text" placeholder="Usuário" autocomplete="username" required />
-      <input id="auth-password" type="password" placeholder="Senha" autocomplete="current-password" required />
+      <input id="auth-username" type="text" placeholder="Usuário (4-24, letras/números/_)" autocomplete="username" minlength="4" maxlength="24" pattern="[A-Za-z0-9_]+" required />
+      <input id="auth-password" type="password" placeholder="Senha (mín. 6 caracteres)" autocomplete="current-password" minlength="6" required />
       <button id="auth-submit" type="submit" class="btn-primary">Entrar</button>
     </form>
     <div id="auth-error" class="error hidden"></div>
@@ -194,8 +194,8 @@
     <div class="change-pass">
       <button id="btn-show-change-pass" class="btn-primary">🔑 Alterar senha</button>
       <div id="change-pass-box" class="hidden">
-        <input id="cp-current" type="password" placeholder="Senha atual" autocomplete="current-password" />
-        <input id="cp-new" type="password" placeholder="Nova senha (mín. 4 caracteres)" autocomplete="new-password" />
+        <input id="cp-current" type="password" placeholder="Senha atual" autocomplete="current-password" minlength="6" required />
+        <input id="cp-new" type="password" placeholder="Nova senha (mín. 6 caracteres)" autocomplete="new-password" minlength="6" required />
         <div class="edit-actions">
           <button id="btn-confirm-change-pass" class="btn-primary">Salvar nova senha</button>
           <button id="btn-cancel-change-pass">Cancelar</button>

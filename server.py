@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import secrets
 import sys
 import threading
@@ -43,7 +44,7 @@ SECURITY_HEADERS = {
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.cloudinary.com https://server.arcgisonline.com; "
+        "img-src 'self' data: blob: https://*.cloudinary.com https://server.arcgisonline.com; "
         "connect-src 'self'; "
         "font-src 'self' data:; "
         "object-src 'none'; "
@@ -563,8 +564,8 @@ class Handler(BaseHTTPRequestHandler):
         new_password = data.get("new_password") or ""
         if not verify_password(current, user["password_hash"]):
             raise ValueError("senha atual incorreta")
-        if len(new_password) < 4:
-            raise ValueError("nova senha deve ter pelo menos 4 caracteres")
+        if len(new_password) < 6:
+            raise ValueError("nova senha deve ter pelo menos 6 caracteres")
         conn = db.connect()
         db.execute(conn, "UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(new_password), user["id"]))
         conn.commit()
@@ -936,12 +937,12 @@ class Handler(BaseHTTPRequestHandler):
         data = self._read_json()
         username = (data.get("username") or "").strip()
         password = data.get("password") or ""
-        if not (4 <= len(username) <= 24):
-            raise ValueError("username deve ter entre 4 e 24 caracteres")
-        if len(password) < 4:
-            raise ValueError("senha deve ter pelo menos 4 caracteres")
+        if not re.fullmatch(r"[A-Za-z0-9_]{4,24}", username):
+            raise ValueError("username deve ter entre 4 e 24 caracteres, só letras, números e _")
+        if len(password) < 6:
+            raise ValueError("senha deve ter pelo menos 6 caracteres")
         conn = db.connect()
-        if db.execute(conn, "SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
+        if db.execute(conn, "SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)", (username,)).fetchone():
             conn.close()
             raise ValueError("username já existe")
         user_id = db.insert_id(
