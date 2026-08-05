@@ -154,9 +154,9 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
         if user_ids:
             uph = ",".join(["?"] * len(user_ids))
             for row in db.execute(
-                conn, f"SELECT id, username FROM users WHERE id IN ({uph})", user_ids
+                conn, f"SELECT id, username, avatar FROM users WHERE id IN ({uph})", user_ids
             ):
-                users[row["id"]] = row["username"]
+                users[row["id"]] = {"username": row["username"], "avatar": row["avatar"] or ""}
 
         like_counts = {}
         for row in db.execute(
@@ -211,7 +211,8 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
             "lng": s["lng"],
             "photo": photo,
             "radius_m": s["radius_m"],
-            "author": users.get(s["user_id"], "unknown"),
+            "author": (users.get(s["user_id"]) or {}).get("username", "unknown"),
+            "author_avatar": (users.get(s["user_id"]) or {}).get("avatar", ""),
             "mine": is_author,
             "created_at": s["created_at"],
             "like_count": like_counts.get(s["id"], 0),
@@ -221,6 +222,32 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
             "unlocked": unlocked,
         })
     return out
+
+
+def _public_user(user, viewer_id):
+    conn = db.connect()
+    followers = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE followee_id = ?", (user["id"],)).fetchone()[0]
+    following = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE follower_id = ?", (user["id"],)).fetchone()[0]
+    spots_n = db.execute(conn, "SELECT COUNT(*) FROM spots WHERE user_id = ?", (user["id"],)).fetchone()[0]
+    is_following = False
+    follows_me = False
+    if viewer_id:
+        is_following = db.execute(
+            conn, "SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?", (viewer_id, user["id"])
+        ).fetchone() is not None
+        follows_me = db.execute(
+            conn, "SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?", (user["id"], viewer_id)
+        ).fetchone() is not None
+    conn.close()
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "bio": user["bio"] or "",
+        "avatar": user["avatar"] or "",
+        "stats": {"spots": spots_n, "followers": followers, "following": following},
+        "is_following": is_following,
+        "follows_me": follows_me,
+    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -309,6 +336,18 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_me()
             elif method == "GET" and path == "/api/profile":
                 self.api_profile()
+            elif method == "POST" and path == "/api/profile":
+                self.api_update_profile()
+            elif method == "GET" and path == "/api/search":
+                self.api_search(query)
+            elif method == "GET" and path == "/api/notifications":
+                self.api_notifications()
+            elif method == "POST" and path == "/api/notifications/read":
+                self.api_notifications_read()
+            elif method == "GET" and path.startswith("/api/users/"):
+                self.api_user_profile(query)
+            elif method == "POST" and path.startswith("/api/users/") and path.endswith("/follow"):
+                self.api_follow()
             elif method == "GET" and path == "/api/spots":
                 self.api_spots(query)
             elif method == "GET" and path.startswith("/api/spots/") and path.endswith("/photo"):
@@ -325,6 +364,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_like()
             elif method == "POST" and path.startswith("/api/spots/") and path.endswith("/comments"):
                 self.api_comment()
+            elif method == "POST" and path.startswith("/api/spots/") and path.endswith("/report"):
+                self.api_report()
             elif method == "DELETE" and path.startswith("/api/spots/"):
                 self.api_delete_spot()
             else:
@@ -340,7 +381,37 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             self._send(200, {"user": None})
             return
-        self._send(200, {"user": {"id": user["id"], "username": user["username"]}})
+        self._send(200, {"user": {"id": user["id"], "username": user["username"],
+                                  "bio": user["bio"] or "", "avatar": user["avatar"] or ""}})
+
+    def api_update_profile(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        data = self._read_json()
+        bio = (data.get("bio") or "").strip()
+        avatar = data.get("avatar")
+        if len(bio) > 200:
+            raise ValueError("bio muito longa (máx 200 caracteres)")
+        if avatar is not None and avatar != "":
+            if not avatar.startswith("data:image"):
+                raise ValueError("avatar inválido")
+            try:
+                _, payload = avatar.split(",", 1)
+                raw = base64.b64decode(payload, validate=True)
+            except Exception:
+                raise ValueError("avatar inválido (base64 quebrado)")
+            if len(raw) > 1_500_000:
+                raise ValueError("avatar muito grande (máx 1.5MB)")
+        conn = db.connect()
+        db.execute(conn, "UPDATE users SET bio = ? WHERE id = ?", (bio, user["id"]))
+        if avatar is not None:
+            db.execute(conn, "UPDATE users SET avatar = ? WHERE id = ?", (avatar, user["id"]))
+        conn.commit()
+        row = db.execute(conn, "SELECT username, bio, avatar FROM users WHERE id = ?", (user["id"],)).fetchone()
+        conn.close()
+        self._send(200, {"username": row["username"], "bio": row["bio"] or "", "avatar": row["avatar"] or ""})
 
     def api_profile(self):
         user = get_user_by_token(self._get_token())
@@ -351,16 +422,177 @@ class Handler(BaseHTTPRequestHandler):
         rows = db.execute(
             conn, "SELECT * FROM spots WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)
         ).fetchall()
+        followers = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE followee_id = ?", (user["id"],)).fetchone()[0]
+        following = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE follower_id = ?", (user["id"],)).fetchone()[0]
         conn.close()
         spots = _bulk_public(rows, user["id"], None, None, as_author=True)
         spots_count = len(spots)
         likes_received = sum(s["like_count"] for s in spots)
         comments_received = sum(len(s["comments"]) for s in spots)
         self._send(200, {
-            "user": {"id": user["id"], "username": user["username"]},
-            "stats": {"spots": spots_count, "likes": likes_received, "comments": comments_received},
+            "user": {"id": user["id"], "username": user["username"],
+                     "bio": user["bio"] or "", "avatar": user["avatar"] or ""},
+            "stats": {"spots": spots_count, "likes": likes_received,
+                      "comments": comments_received, "followers": followers, "following": following},
             "spots": spots,
         })
+
+    def api_user_profile(self, query):
+        viewer = get_user_by_token(self._get_token())
+        username = urlparse(self.path).path.strip("/").split("/")[-1]
+        conn = db.connect()
+        user = db.execute(conn, "SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        if not user:
+            conn.close()
+            self._send(404, {"error": "usuário não existe"})
+            return
+        rows = db.execute(
+            conn, "SELECT * FROM spots WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)
+        ).fetchall()
+        conn.close()
+        try:
+            lat = float(query.get("lat", [""])[0]) if query.get("lat") else None
+            lng = float(query.get("lng", [""])[0]) if query.get("lng") else None
+        except (ValueError, IndexError):
+            raise ValueError("lat/lng inválidos")
+        spots = _bulk_public(rows, viewer["id"] if viewer else None, lat, lng)
+        pub = _public_user(user, viewer["id"] if viewer else None)
+        pub["spots"] = spots
+        self._send(200, pub)
+
+    def api_follow(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        try:
+            target = int(urlparse(self.path).path.strip("/").split("/")[-2])
+        except ValueError:
+            raise ValueError("id inválido")
+        if target == user["id"]:
+            raise ValueError("você não pode seguir a si mesmo")
+        conn = db.connect()
+        if not db.execute(conn, "SELECT 1 FROM users WHERE id = ?", (target,)).fetchone():
+            conn.close()
+            raise ValueError("usuário não existe")
+        existing = db.execute(
+            conn, "SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?", (user["id"], target)
+        ).fetchone()
+        if existing:
+            db.execute(
+                conn, "DELETE FROM follows WHERE follower_id = ? AND followee_id = ?", (user["id"], target)
+            )
+            following = False
+        else:
+            db.execute(
+                conn, "INSERT INTO follows (follower_id, followee_id) VALUES (?, ?)", (user["id"], target)
+            )
+            following = True
+            db.execute(
+                conn,
+                "INSERT INTO notifications (user_id, actor_id, type, text) VALUES (?, ?, 'follow', 'começou a seguir você')",
+                (target, user["id"]),
+            )
+        conn.commit()
+        count = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE followee_id = ?", (target,)).fetchone()[0]
+        conn.close()
+        self._send(200, {"following": following, "followers": count})
+
+    def api_search(self, query):
+        q = (query.get("q", [""])[0] or "").strip()
+        if len(q) < 1:
+            raise ValueError("busca vazia")
+        if len(q) > 60:
+            raise ValueError("busca muito longa")
+        viewer = get_user_by_token(self._get_token())
+        try:
+            lat = float(query.get("lat", [""])[0]) if query.get("lat") else None
+            lng = float(query.get("lng", [""])[0]) if query.get("lng") else None
+        except (ValueError, IndexError):
+            raise ValueError("lat/lng inválidos")
+        like = f"%{q}%"
+        conn = db.connect()
+        urows = db.execute(
+            conn, "SELECT * FROM users WHERE lower(username) LIKE lower(?) LIMIT 10", (like,)
+        ).fetchall()
+        srows = db.execute(
+            conn,
+            "SELECT * FROM spots WHERE lower(name) LIKE lower(?) OR lower(description) LIKE lower(?) LIMIT 10",
+            (like, like),
+        ).fetchall()
+        conn.close()
+        users = [
+            {"id": r["id"], "username": r["username"], "bio": r["bio"] or "", "avatar": r["avatar"] or ""}
+            for r in urows
+        ]
+        spots = _bulk_public(srows, viewer["id"] if viewer else None, lat, lng)
+        self._send(200, {"users": users, "spots": spots})
+
+    def api_notifications(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        conn = db.connect()
+        rows = db.execute(
+            conn,
+            """SELECT n.id, n.type, n.text, n.read, n.created_at, n.spot_id,
+                      u.username AS actor, s.name AS spot_name
+               FROM notifications n
+               LEFT JOIN users u ON u.id = n.actor_id
+               LEFT JOIN spots s ON s.id = n.spot_id
+               WHERE n.user_id = ?
+               ORDER BY n.created_at DESC, n.id DESC LIMIT 50""",
+            (user["id"],),
+        ).fetchall()
+        unread = db.execute(
+            conn, "SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read = 0", (user["id"],)
+        ).fetchone()[0]
+        conn.close()
+        notifs = [
+            {
+                "id": r["id"], "type": r["type"], "text": r["text"], "read": bool(r["read"]),
+                "created_at": r["created_at"], "spot_id": r["spot_id"],
+                "actor": r["actor"] or "?", "spot_name": r["spot_name"],
+            }
+            for r in rows
+        ]
+        self._send(200, {"notifications": notifs, "unread": unread})
+
+    def api_notifications_read(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        conn = db.connect()
+        db.execute(conn, "UPDATE notifications SET read = 1 WHERE user_id = ?", (user["id"],))
+        conn.commit()
+        conn.close()
+        self._send(200, {"ok": True})
+
+    def api_report(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        if _rate_limited(f"rep:{self._client_ip()}"):
+            self._send(429, {"error": "muitas denúncias, aguarde um pouco"})
+            return
+        spot_id = self._spot_id_from_path()
+        data = self._read_json()
+        reason = (data.get("reason") or "").strip()
+        if not reason:
+            raise ValueError("informe um motivo")
+        if len(reason) > 500:
+            raise ValueError("motivo muito longo")
+        conn = db.connect()
+        if not db.execute(conn, "SELECT 1 FROM spots WHERE id = ?", (spot_id,)).fetchone():
+            conn.close()
+            raise ValueError("spot não existe")
+        db.execute(conn, "INSERT INTO reports (reporter_id, spot_id, reason) VALUES (?, ?, ?)", (user["id"], spot_id, reason))
+        conn.commit()
+        conn.close()
+        self._send(201, {"ok": True})
 
     def api_delete_spot(self):
         user = get_user_by_token(self._get_token())
@@ -467,10 +699,20 @@ class Handler(BaseHTTPRequestHandler):
                 limit = max(1, min(int(query["limit"][0]), MAX_SPOT_LIMIT))
             except ValueError:
                 raise ValueError("limit inválido")
+        feed_following = (query.get("feed") or [""])[0] == "following"
         conn = db.connect()
-        rows = db.execute(
-            conn, "SELECT * FROM spots ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        if feed_following and viewer_id:
+            rows = db.execute(
+                conn,
+                """SELECT sp.* FROM spots sp
+                   JOIN follows f ON f.followee_id = sp.user_id AND f.follower_id = ?
+                   ORDER BY sp.created_at DESC LIMIT ?""",
+                (viewer_id, limit),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                conn, "SELECT * FROM spots ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         conn.close()
         spots = _bulk_public(rows, viewer_id, lat, lng)
         if lat is None or lng is None:
@@ -561,7 +803,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         spot_id = self._spot_id_from_path()
         conn = db.connect()
-        if not db.execute(conn, "SELECT 1 FROM spots WHERE id = ?", (spot_id,)).fetchone():
+        spot = db.execute(conn, "SELECT id, user_id FROM spots WHERE id = ?", (spot_id,)).fetchone()
+        if not spot:
             conn.close()
             raise ValueError("spot não existe")
         existing = db.execute(
@@ -573,6 +816,12 @@ class Handler(BaseHTTPRequestHandler):
         else:
             db.execute(conn, "INSERT INTO likes (spot_id, user_id) VALUES (?, ?)", (spot_id, user["id"]))
             liked = True
+            if spot["user_id"] != user["id"]:
+                db.execute(
+                    conn,
+                    "INSERT INTO notifications (user_id, actor_id, type, spot_id, text) VALUES (?, ?, 'like', ?, 'curtiu sua foto')",
+                    (spot["user_id"], user["id"], spot_id),
+                )
         conn.commit()
         count = db.execute(conn, "SELECT COUNT(*) FROM likes WHERE spot_id = ?", (spot_id,)).fetchone()[0]
         conn.close()
@@ -591,10 +840,18 @@ class Handler(BaseHTTPRequestHandler):
         if len(text) > 500:
             raise ValueError("comentário muito longo")
         conn = db.connect()
-        if not db.execute(conn, "SELECT 1 FROM spots WHERE id = ?", (spot_id,)).fetchone():
+        spot = db.execute(conn, "SELECT id, user_id FROM spots WHERE id = ?", (spot_id,)).fetchone()
+        if not spot:
             conn.close()
             raise ValueError("spot não existe")
         db.execute(conn, "INSERT INTO comments (spot_id, user_id, text) VALUES (?, ?, ?)", (spot_id, user["id"], text))
+        if spot["user_id"] != user["id"]:
+            snippet = (text[:100] + "…") if len(text) > 100 else text
+            db.execute(
+                conn,
+                "INSERT INTO notifications (user_id, actor_id, type, spot_id, text) VALUES (?, ?, 'comment', ?, ?)",
+                (spot["user_id"], user["id"], spot_id, f"comentou: {snippet}"),
+            )
         conn.commit()
         conn.close()
         self._send(201, {"ok": True})

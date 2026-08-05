@@ -41,8 +41,12 @@
   <header>
     <div class="logo small">Near<span>Gram</span></div>
     <div id="user-chip">
+      <img id="avatar-nav" class="avatar-nav" alt="" />
       <span id="username-label"></span>
-      <button id="btn-profile" title="Meu perfil">👤 Perfil</button>
+      <button id="btn-search" title="Buscar lugares e usuários">🔍</button>
+      <button id="btn-notifs" title="Notificações">🔔<span id="notif-badge" class="badge hidden"></span></button>
+      <button id="btn-theme" title="Alternar tema">🌙</button>
+      <button id="btn-profile" title="Meu perfil">Perfil</button>
       <button id="btn-logout" title="Sair">Sair</button>
     </div>
   </header>
@@ -68,6 +72,10 @@
     </section>
 
     <section id="feed-section">
+      <div class="feed-tabs">
+        <button id="tab-feed-all" class="feed-tab active">Todos</button>
+        <button id="tab-feed-following" class="feed-tab">Seguindo</button>
+      </div>
       <h2>Lugares <span id="feed-count"></span></h2>
       <div id="feed"></div>
     </section>
@@ -115,8 +123,15 @@
     <p id="spot-meta"></p>
     <p id="spot-desc"></p>
     <div class="spot-actions">
-      <button id="btn-like" class="btn-like">♥ <span id="like-count">0</span></button>
+      <button id="btn-like" class="btn-like">♥ <span id="like-label">Curtir</span> <span id="like-count">0</span></button>
       <span id="spot-distance"></span>
+      <button id="btn-share" title="Compartilhar link">🔗</button>
+      <button id="btn-report" title="Denunciar conteúdo">🚩</button>
+    </div>
+    <div id="report-box" class="hidden">
+      <input id="report-reason" type="text" placeholder="Motivo da denúncia…" maxlength="500" />
+      <button id="btn-send-report" class="btn-danger">Enviar denúncia</button>
+      <span id="report-msg"></span>
     </div>
     <div class="comments">
       <h4>Comentários</h4>
@@ -135,9 +150,58 @@
 <div id="modal-profile" class="modal hidden">
   <div class="modal-box">
     <div class="modal-head"><h3 id="profile-title">Meu perfil</h3><button class="btn-close" data-close>×</button></div>
-    <div class="profile-stats" id="profile-stats"></div>
+    <div class="profile-head">
+      <img id="profile-avatar" class="avatar-lg" alt="" />
+      <div class="profile-head-info">
+        <div id="profile-bio" class="profile-bio"></div>
+        <button id="btn-edit-profile" class="btn-primary">✏️ Editar perfil</button>
+      </div>
+    </div>
+    <div class="profile-edit hidden" id="profile-edit">
+      <textarea id="bio-input" placeholder="Sua biografia… (máx 200)" maxlength="200"></textarea>
+      <label class="file-btn">📷 Trocar avatar<input type="file" id="avatar-input" accept="image/*" hidden /></label>
+      <button id="btn-save-profile" class="btn-primary">Salvar</button>
+      <div id="profile-error" class="error hidden"></div>
+    </div>
+    <div id="profile-stats" class="profile-stats"></div>
     <div id="profile-spots" class="profile-grid"></div>
     <p id="profile-empty" class="hint">Você ainda não publicou nenhuma foto. Toque em <b>＋ Nova foto</b> no mapa!</p>
+  </div>
+</div>
+
+<div id="modal-user" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><h3 id="user-title"></h3><button class="btn-close" data-close>×</button></div>
+    <div class="profile-head">
+      <img id="user-avatar" class="avatar-lg" alt="" />
+      <div class="profile-head-info">
+        <div id="user-bio" class="profile-bio"></div>
+        <button id="btn-follow" class="btn-primary">Seguir</button>
+        <span id="user-follow-hint" class="hint"></span>
+      </div>
+    </div>
+    <div id="user-stats" class="profile-stats"></div>
+    <div id="user-spots" class="profile-grid"></div>
+    <p id="user-empty" class="hint">Nenhuma foto publicada ainda.</p>
+  </div>
+</div>
+
+<div id="modal-search" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><h3>Buscar</h3><button class="btn-close" data-close>×</button></div>
+    <div class="search-row">
+      <input id="search-input" type="search" placeholder="Lugares ou usuários…" maxlength="60" />
+      <button id="btn-search-go" class="btn-primary">Buscar</button>
+    </div>
+    <div id="search-results"></div>
+  </div>
+</div>
+
+<div id="modal-notifs" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><h3>Notificações</h3><button class="btn-close" data-close>×</button></div>
+    <div id="notif-list"></div>
+    <p id="notif-empty" class="hint hidden">Sem notificações ainda.</p>
   </div>
 </div>
 

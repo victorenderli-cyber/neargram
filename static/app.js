@@ -10,9 +10,34 @@ let state = {
   mode: "real", // real | sim
   currentPos: null, // {lat, lng}
   selectedSpotId: null,
+  feedMode: "all", // all | following
 };
 
 const API = "/api";
+
+/* ---------------- Tema claro/escuro ---------------- */
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem("ng-theme", t);
+  $("btn-theme").textContent = t === "light" ? "☀️" : "🌙";
+}
+$("btn-theme").addEventListener("click", () => {
+  const cur = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  applyTheme(cur === "light" ? "dark" : "light");
+});
+applyTheme(localStorage.getItem("ng-theme") || "dark");
+
+function setAvatar(id, dataUrl) {
+  const el = $(id);
+  if (!el) return;
+  if (dataUrl) {
+    el.src = dataUrl;
+    el.classList.remove("no-avatar");
+  } else {
+    el.removeAttribute("src");
+    el.classList.add("no-avatar");
+  }
+}
 
 async function api(path, opts = {}) {
   const res = await fetch(API + path, {
@@ -61,33 +86,77 @@ $("btn-logout").addEventListener("click", async () => {
   showAuth();
 });
 
-$("btn-profile").addEventListener("click", async () => {
-  try {
-    const p = await api("/profile");
-    $("profile-title").textContent = "@" + p.user.username;
-    $("profile-stats").innerHTML = `
-      <div class="stat"><b>${p.stats.spots}</b><span>fotos</span></div>
-      <div class="stat"><b>${p.stats.likes}</b><span>curtidas</span></div>
-      <div class="stat"><b>${p.stats.comments}</b><span>comentários</span></div>`;
-    const grid = $("profile-spots");
-    grid.innerHTML = "";
-    $("profile-empty").classList.toggle("hidden", p.spots.length > 0);
-    p.spots.forEach((s) => {
-      const item = document.createElement("div");
-      item.className = "pg-item";
-      item.innerHTML = `
-        ${s.photo ? `<img src="${s.photo}" />` : `<div class="pg-lock">🔒</div>`}
-        <button class="pg-del" title="Excluir">✕</button>`;
+function renderProfileGrid(gridId, emptyId, spots, mine) {
+  const grid = $(gridId);
+  grid.innerHTML = "";
+  $(emptyId).classList.toggle("hidden", spots.length > 0);
+  spots.forEach((s) => {
+    const item = document.createElement("div");
+    item.className = "pg-item";
+    item.innerHTML = `
+      ${s.photo ? `<img src="${s.photo}" />` : `<div class="pg-lock">🔒</div>`}
+      ${mine ? `<button class="pg-del" title="Excluir">✕</button>` : ""}`;
+    if (mine) {
       item.querySelector(".pg-del").addEventListener("click", (e) => {
         e.stopPropagation();
         deleteSpot(s.id);
       });
-      item.addEventListener("click", () => openSpotDetail(s.id));
-      grid.appendChild(item);
-    });
+    }
+    item.addEventListener("click", () => openSpotDetail(s.id));
+    grid.appendChild(item);
+  });
+}
+
+$("btn-profile").addEventListener("click", async () => {
+  try {
+    const p = await api("/profile");
+    $("profile-title").textContent = "@" + p.user.username;
+    setAvatar("profile-avatar", p.user.avatar);
+    $("profile-bio").textContent = p.user.bio || "Sem biografia ainda.";
+    $("profile-stats").innerHTML = `
+      <div class="stat"><b>${p.stats.spots}</b><span>fotos</span></div>
+      <div class="stat"><b>${p.stats.followers}</b><span>seguidores</span></div>
+      <div class="stat"><b>${p.stats.following}</b><span>seguindo</span></div>
+      <div class="stat"><b>${p.stats.likes}</b><span>curtidas</span></div>
+      <div class="stat"><b>${p.stats.comments}</b><span>comentários</span></div>`;
+    renderProfileGrid("profile-spots", "profile-empty", p.spots, true);
+    $("profile-edit").classList.add("hidden");
+    $("bio-input").value = p.user.bio || "";
+    hideError("profile-error");
     showModal("modal-profile");
   } catch (e) {
     alert(e.message);
+  }
+});
+
+$("btn-edit-profile").addEventListener("click", () => {
+  $("profile-edit").classList.remove("hidden");
+});
+
+$("avatar-input").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  if (!f || !f.type.startsWith("image/")) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    $("profile-avatar").src = reader.result;
+    window._newAvatar = reader.result;
+  };
+  reader.readAsDataURL(f);
+});
+
+$("btn-save-profile").addEventListener("click", async () => {
+  try {
+    hideError("profile-error");
+    const body = { bio: $("bio-input").value };
+    if (window._newAvatar) body.avatar = window._newAvatar;
+    const res = await api("/profile", { method: "POST", body });
+    window._newAvatar = null;
+    setAvatar("avatar-nav", res.avatar);
+    $("profile-bio").textContent = res.bio || "Sem biografia ainda.";
+    $("profile-edit").classList.add("hidden");
+    alert("Perfil atualizado!");
+  } catch (e) {
+    showError("profile-error", e.message);
   }
 });
 
@@ -111,6 +180,7 @@ async function boot() {
   showApp();
   initMap();
   startPositioning();
+  handleDeepLink();
 }
 
 function showAuth() {
@@ -121,6 +191,8 @@ function showApp() {
   $("auth-view").classList.add("hidden");
   $("app-view").classList.remove("hidden");
   $("username-label").textContent = "@" + state.user.username;
+  setAvatar("avatar-nav", state.user.avatar);
+  loadNotifications();
 }
 
 /* ---------------- Map ---------------- */
@@ -222,7 +294,8 @@ function youIcon() {
 async function refreshSpots() {
   if (!state.currentPos) return;
   try {
-    const q = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}`;
+    const feedQ = state.feedMode === "following" ? "&feed=following" : "";
+    const q = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}${feedQ}`;
     const data = await api("/spots" + q);
     state.spots = data.spots;
     state.radius = data.radius_m;
@@ -274,7 +347,11 @@ function renderFeed() {
   feed.innerHTML = "";
   $("feed-count").textContent = `(${state.spots.length})`;
   if (!state.spots.length) {
-    feed.innerHTML = `<div class="feed-card" style="cursor:default">Nenhum lugar aqui ainda. Toque em <b>＋ Nova foto</b> para ser o primeiro! 📸</div>`;
+    feed.innerHTML = state.feedMode === "following"
+      ? `<div class="feed-card" style="cursor:default">Você ainda não segue ninguém com fotos perto daqui. <button class="link-author" data-user="" id="empty-search-link">Buscar pessoas</button></div>`
+      : `<div class="feed-card" style="cursor:default">Nenhum lugar aqui ainda. Toque em <b>＋ Nova foto</b> para ser o primeiro! 📸</div>`;
+    const link = $("empty-search-link");
+    if (link) link.addEventListener("click", () => showModal("modal-search"));
     return;
   }
   state.spots.forEach((s) => {
@@ -290,15 +367,20 @@ function renderFeed() {
         : unlocked
         ? `<div class="fc-dist unlocked">✓ Desbloqueada · ${fmtDistance(s.distance_m)}</div>`
         : `<div class="fc-dist locked">🔒 ${fmtDistance(s.distance_m)} · aproxime-se para abrir</div>`;
+    const authorAvatar = s.author_avatar
+      ? `<img class="avatar-xs" src="${s.author_avatar}" alt=""/>`
+      : `<span class="avatar-xs no-avatar"></span>`;
     card.innerHTML = `
       <div class="fc-top">
         ${imgHtml}
         <div style="flex:1">
           <div class="fc-name">${esc(s.name)}</div>
-          <div class="fc-meta">@${esc(s.author)} · ♥ ${s.like_count} · ${s.comments.length} comentários</div>
+          <div class="fc-meta"><button class="link-author" data-user="${esc(s.author)}">${authorAvatar}@${esc(s.author)}</button> · ♥ ${s.like_count} · ${s.comments.length} comentários</div>
           ${dist}
         </div>
       </div>`;
+    const au = card.querySelector(".link-author");
+    if (au) au.addEventListener("click", (e) => { e.stopPropagation(); openUserProfile(au.dataset.user); });
     card.addEventListener("click", () => openSpotDetail(s.id));
     feed.appendChild(card);
   });
@@ -344,13 +426,15 @@ async function showSpotModal(spot) {
       ? "Esta foto é privada e só aparece para quem está no local. Para desbloquear, vá até o lugar."
       : `Você está a ${fmtDistance(spot.distance_m)} de distância. Aproxime-se (dentro de ${spot.radius_m} m) para revelar a foto.`;
   }
-  $("spot-meta").textContent = `Publicado por @${spot.author} · ${fmtDate(spot.created_at)} · raio ${spot.radius_m} m`;
+  $("spot-meta").innerHTML = `Publicado por <button class="link-author" data-user="${esc(spot.author)}">@${esc(spot.author)}</button> · ${fmtDate(spot.created_at)} · raio ${spot.radius_m} m`;
+  const metaAuthor = $("spot-meta").querySelector(".link-author");
+  if (metaAuthor) metaAuthor.addEventListener("click", () => { hideModal("modal-spot"); openUserProfile(metaAuthor.dataset.user); });
   $("spot-desc").textContent = spot.description || "Sem descrição.";
   $("spot-distance").textContent = spot.distance_m != null
     ? `${unlocked ? "✓ A  " : "🔒 A "}${fmtDistance(spot.distance_m)}`
     : "";
   const likeBtn = $("btn-like");
-  likeBtn.textContent = spot.liked ? "♥ Você curtiu" : `♥ Curtir`;
+  $("like-label").textContent = spot.liked ? "Você curtiu" : "Curtir";
   $("like-count").textContent = spot.like_count;
   likeBtn.classList.toggle("liked", spot.liked);
 
@@ -360,8 +444,11 @@ async function showSpotModal(spot) {
 
   const cl = $("comments-list");
   cl.innerHTML = spot.comments.length
-    ? spot.comments.map((c) => `<div class="comment"><span class="c-author">@${esc(c.author)}</span>${esc(c.text)}<span class="c-time">${fmtDate(c.created_at)}</span></div>`).join("")
+    ? spot.comments.map((c) => `<div class="comment"><button class="link-author" data-user="${esc(c.author)}">@${esc(c.author)}</button>${esc(c.text)}<span class="c-time">${fmtDate(c.created_at)}</span></div>`).join("")
     : `<div style="color:var(--muted);font-size:13px">Sem comentários ainda.</div>`;
+  cl.querySelectorAll(".link-author").forEach((b) =>
+    b.addEventListener("click", () => { hideModal("modal-spot"); openUserProfile(b.dataset.user); })
+  );
 
   showModal("modal-spot");
 }
@@ -370,9 +457,10 @@ $("btn-like").addEventListener("click", async () => {
   if (!state.user) return showError("publish-error", "faça login");
   const id = state.selectedSpotId;
   const res = await api(`/spots/${id}/like`, { method: "POST", body: {} });
-  $("btn-like").textContent = res.liked ? "♥ Curtido" : "♥ Curtir";
+  $("like-label").textContent = res.liked ? "Curtido" : "Curtir";
   $("like-count").textContent = res.like_count;
   $("btn-like").classList.toggle("liked", res.liked);
+  loadNotifications();
 });
 
 $("comment-form").addEventListener("submit", async (e) => {
@@ -382,7 +470,38 @@ $("comment-form").addEventListener("submit", async (e) => {
   if (!text) return;
   await api(`/spots/${state.selectedSpotId}/comments`, { method: "POST", body: { text } });
   $("comment-input").value = "";
+  loadNotifications();
   openSpotDetail(state.selectedSpotId);
+});
+
+$("btn-share").addEventListener("click", async () => {
+  const id = state.selectedSpotId;
+  if (!id) return;
+  const url = location.origin + "/#spot=" + id;
+  try {
+    await navigator.clipboard.writeText(url);
+    alert("Link copiado! Envie para um amigo abrir este lugar: " + url);
+  } catch (e) {
+    prompt("Copie o link:", url);
+  }
+});
+
+$("btn-report").addEventListener("click", () => {
+  $("report-box").classList.remove("hidden");
+  $("report-msg").textContent = "";
+});
+
+$("btn-send-report").addEventListener("click", async () => {
+  const reason = $("report-reason").value.trim();
+  if (!reason) { $("report-msg").textContent = "Informe um motivo (ex: foto imprópria)."; return; }
+  try {
+    await api(`/spots/${state.selectedSpotId}/report`, { method: "POST", body: { reason } });
+    $("report-box").classList.add("hidden");
+    $("report-reason").value = "";
+    $("report-msg").textContent = "Denúncia enviada. Obrigado!";
+  } catch (e) {
+    $("report-msg").textContent = e.message;
+  }
 });
 
 /* ---------------- New spot modal ---------------- */
@@ -440,6 +559,162 @@ $("btn-publish").addEventListener("click", async () => {
     showError("publish-error", err.message);
   }
 });
+
+/* ---------------- Search ---------------- */
+$("btn-search").addEventListener("click", () => {
+  $("search-input").value = "";
+  $("search-results").innerHTML = "";
+  showModal("modal-search");
+  setTimeout(() => $("search-input").focus(), 60);
+});
+
+async function runSearch() {
+  const q = $("search-input").value.trim();
+  const res = $("search-results");
+  if (!q) return;
+  res.innerHTML = `<div class="hint">Buscando…</div>`;
+  try {
+    let qs = `?q=${encodeURIComponent(q)}`;
+    if (state.currentPos) qs += `&lat=${state.currentPos.lat}&lng=${state.currentPos.lng}`;
+    const d = await api("/search" + qs);
+    if (!d.users.length && !d.spots.length) {
+      res.innerHTML = `<div class="hint">Nada encontrado para "${esc(q)}".</div>`;
+      return;
+    }
+    res.innerHTML = "";
+    d.users.forEach((u) => {
+      const row = document.createElement("div");
+      row.className = "search-row-item";
+      row.innerHTML = `
+        ${u.avatar ? `<img class="avatar-sm" src="${u.avatar}" alt=""/>` : `<span class="avatar-sm no-avatar"></span>`}
+        <span class="search-row-name">@${esc(u.username)}</span>
+        <small>${esc(u.bio || "")}</small>`;
+      row.addEventListener("click", () => { hideModal("modal-search"); openUserProfile(u.username); });
+      res.appendChild(row);
+    });
+    d.spots.forEach((s) => {
+      const row = document.createElement("div");
+      row.className = "search-row-item";
+      row.innerHTML = `
+        ${s.photo ? `<img class="search-thumb" src="${s.photo}" alt=""/>` : `<span class="search-thumb lock">🔒</span>`}
+        <span class="search-row-name">${esc(s.name)}</span>
+        <small>@${esc(s.author)}</small>`;
+      row.addEventListener("click", () => { hideModal("modal-search"); openSpotDetail(s.id); });
+      res.appendChild(row);
+    });
+  } catch (e) {
+    res.innerHTML = `<div class="hint">${esc(e.message)}</div>`;
+  }
+}
+$("btn-search-go").addEventListener("click", runSearch);
+$("search-input").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+
+/* ---------------- Notifications ---------------- */
+async function loadNotifications() {
+  try {
+    const d = await api("/notifications");
+    const badge = $("notif-badge");
+    badge.textContent = d.unread || "";
+    badge.classList.toggle("hidden", !d.unread);
+  } catch (e) {}
+}
+
+$("btn-notifs").addEventListener("click", async () => {
+  try {
+    const d = await api("/notifications");
+    const list = $("notif-list");
+    list.innerHTML = "";
+    $("notif-empty").classList.toggle("hidden", d.notifications.length > 0);
+    d.notifications.forEach((n) => {
+      const div = document.createElement("div");
+      div.className = "notif" + (n.read ? "" : " unread");
+      div.innerHTML = `
+        <div class="notif-head"><span class="notif-actor">@${esc(n.actor)}</span><span class="notif-time">${fmtDate(n.created_at)}</span></div>
+        <div class="notif-text">${esc(n.type === "follow" ? "começou a seguir você" : n.text || "")}</div>
+        ${n.spot_id ? `<button class="notif-goto" data-spot="${n.spot_id}">Ver lugar</button>` : ""}`;
+      const go = div.querySelector(".notif-goto");
+      if (go) go.addEventListener("click", () => { hideModal("modal-notifs"); openSpotDetail(parseInt(go.dataset.spot, 10)); });
+      list.appendChild(div);
+    });
+    showModal("modal-notifs");
+    await api("/notifications/read", { method: "POST" });
+    $("notif-badge").classList.add("hidden");
+    $("notif-badge").textContent = "";
+  } catch (e) {
+    alert(e.message);
+  }
+});
+
+/* ---------------- Public user profile & follow ---------------- */
+async function openUserProfile(username) {
+  try {
+    let qs = "";
+    if (state.currentPos) qs = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}`;
+    const d = await api(`/users/${encodeURIComponent(username)}` + qs);
+    $("user-title").textContent = "@" + d.username;
+    setAvatar("user-avatar", d.avatar);
+    $("user-bio").textContent = d.bio || "Sem biografia.";
+    const btn = $("btn-follow");
+    if (!state.user || d.username === state.user.username) {
+      btn.classList.add("hidden");
+    } else {
+      btn.classList.remove("hidden");
+      btn.textContent = d.is_following ? "✓ Seguindo" : "Seguir";
+    }
+    $("user-follow-hint").textContent = d.follows_me ? "Este perfil segue você" : "";
+    $("user-stats").innerHTML = `
+      <div class="stat"><b>${d.stats.spots}</b><span>fotos</span></div>
+      <div class="stat"><b>${d.stats.followers}</b><span>seguidores</span></div>
+      <div class="stat"><b>${d.stats.following}</b><span>seguindo</span></div>`;
+    renderProfileGrid("user-spots", "user-empty", d.spots, false);
+    window._userProfile = d;
+    showModal("modal-user");
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+$("btn-follow").addEventListener("click", async () => {
+  const u = window._userProfile;
+  if (!u || !state.user) return;
+  try {
+    const res = await api(`/users/${u.id}/follow`, { method: "POST", body: {} });
+    u.is_following = res.following;
+    u.stats.followers = res.followers;
+    $("btn-follow").textContent = res.following ? "✓ Seguindo" : "Seguir";
+    const statEls = $("user-stats").querySelectorAll(".stat");
+    if (statEls[1]) statEls[1].querySelector("b").textContent = res.followers;
+    loadNotifications();
+    if (state.feedMode === "following") refreshSpots();
+  } catch (e) {
+    alert(e.message);
+  }
+});
+
+/* ---------------- Feed tabs ---------------- */
+$("tab-feed-all").addEventListener("click", () => setFeed("all"));
+$("tab-feed-following").addEventListener("click", () => setFeed("following"));
+function setFeed(mode) {
+  state.feedMode = mode;
+  $("tab-feed-all").classList.toggle("active", mode === "all");
+  $("tab-feed-following").classList.toggle("active", mode === "following");
+  refreshSpots();
+}
+
+/* ---------------- Deep link (#spot=ID) ---------------- */
+function handleDeepLink() {
+  const m = location.hash.match(/^#spot=(\d+)$/);
+  if (!m) return;
+  const id = parseInt(m[1], 10);
+  const tryOpen = () => {
+    if (state.currentPos) { openSpotDetail(id); return true; }
+    return false;
+  };
+  if (!tryOpen()) {
+    const iv = setInterval(() => { if (tryOpen()) clearInterval(iv); }, 500);
+    setTimeout(() => clearInterval(iv), 20000);
+  }
+}
 
 /* ---------------- Modal helpers ---------------- */
 function showModal(id) {

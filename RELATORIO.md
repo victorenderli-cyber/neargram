@@ -14,9 +14,18 @@
 
 ### Autenticação
 - Cadastro e login por usuário/senha.
-- Sessões por cookie `HttpOnly` + `SameSite=Lax` (+ `Secure` atrás de HTTPS).
-- Perfil com estatísticas (fotos, curtidas, comentários) e grid das próprias fotos.
+- Sessões por cookie `HttpOnly` + `SameSite=Lax` (+ `Secure` atrás de HTTPS), com expiração de 30 dias.
+- Perfil com **bio e foto de avatar**, estatísticas (fotos, curtidas, comentários, seguidores, seguindo) e grid das próprias fotos.
 - Autor pode **excluir** as próprias fotos e vê as próprias a qualquer distância.
+
+### Rede social
+- **Seguir / deixar de seguir** usuários; **feed "Seguindo"** (só fotos de quem você segue, perto de você).
+- **Busca** de lugares e usuários (por nome/bio).
+- **Notificações** de curtidas, comentários e novos seguidores (com badge de não-lidas).
+- **Perfil público** de qualquer usuário (bio, avatar, stats, grid) com botão seguir.
+- **Compartilhar link do lugar** (link direto `#spot=ID` abre a foto).
+- **Denunciar conteúdo impróprio** (motivo gravado, com rate limit por IP).
+- **Modo claro/escuro** (preferência salva no navegador).
 
 ### Publicação por geo-fence
 - Publicar foto com nome, descrição, posição atual e **raio de desbloqueio** (50–2000 m, padrão 500 m).
@@ -94,13 +103,16 @@ RELATORIO.md     # este documento
 
 | Tabela | Função | Colunas principais |
 |---|---|---|
-| `users` | Usuários | `id`, `username` (único, ≤24), `password_hash`, `created_at` |
+| `users` | Usuários | `id`, `username` (único, ≤24), `password_hash`, `bio`, `avatar`, `created_at` |
 | `sessions` | Sessões | `token` (PK), `user_id` (FK), `created_at` |
 | `spots` | Fotos/lugares | `id`, `user_id`, `name`, `description`, `lat`, `lng`, `photo_b64`, `photo_mime`, `radius_m` (padrão 500), `created_at` |
 | `likes` | Curtidas | `spot_id`+`user_id` (PK composta), `created_at` |
 | `comments` | Comentários | `id`, `spot_id`, `user_id`, `text` (≤500), `created_at` |
+| `follows` | Seguidores | `follower_id`+`followee_id` (PK composta), `created_at` |
+| `notifications` | Notificações | `id`, `user_id`, `actor_id`, `type`, `spot_id`, `text`, `read`, `created_at` |
+| `reports` | Denúncias | `id`, `reporter_id`, `spot_id`, `reason`, `created_at` |
 
-Relacionamentos: `spots`, `sessions`, `likes` e `comments` usam `ON DELETE CASCADE` em relação a `users`/`spots`. No Postgres as tabelas ficam isoladas no **schema `neargram`** para conviver com outro app no mesmo banco free sem conflito.
+Relacionamentos: `spots`, `sessions`, `likes`, `comments`, `follows`, `notifications` e `reports` usam `ON DELETE CASCADE` em relação a `users`/`spots` (exceto `reports.reporter_id` que usa `SET NULL`). No Postgres as tabelas ficam isoladas no **schema `neargram`** para conviver com outro app no mesmo banco free sem conflito. Para bancos existentes, `db.migrate()` adiciona `bio`/`avatar` via `ALTER TABLE`.
 
 ---
 
@@ -113,11 +125,18 @@ Relacionamentos: `spots`, `sessions`, `likes` e `comments` usam `ON DELETE CASCA
 | POST | `/api/logout` | Encerra sessão | cookie |
 | GET | `/api/me` | Usuário atual (ou `null`) | — |
 | GET | `/api/profile` | Stats + fotos do usuário | cookie |
-| GET | `/api/spots?lat=&lng=` | Lista lugares com distância/bloqueio | — |
+| POST | `/api/profile` | Atualiza bio/avatar | cookie |
+| GET | `/api/search?q=&lat=&lng=` | Busca usuários e lugares | — |
+| GET | `/api/notifications` | Notificações + contagem de não-lidas | cookie |
+| POST | `/api/notifications/read` | Marca todas como lidas | cookie |
+| GET | `/api/users/:username` | Perfil público (stats, follows, fotos) | — |
+| POST | `/api/users/:id/follow` | Seguir / deixar de seguir | cookie |
+| GET | `/api/spots?lat=&lng=&feed=following&limit=` | Lista lugares (feed normal ou "seguindo") | — |
 | POST | `/api/spots` | Publica foto (JSON, foto em base64) | cookie |
 | GET | `/api/spots/:id/photo?lat=&lng=` | Foto — só se estiver no raio | geo-fence |
-| POST | `/api/spots/:id/like` | Curtir/descurtir | cookie |
-| POST | `/api/spots/:id/comments` | Comentar | cookie |
+| POST | `/api/spots/:id/like` | Curtir/descurtir (gera notificação) | cookie |
+| POST | `/api/spots/:id/comments` | Comentar (gera notificação) | cookie |
+| POST | `/api/spots/:id/report` | Denunciar conteúdo (rate limit por IP) | cookie |
 | DELETE | `/api/spots/:id` | Excluir (somente autor) | cookie |
 
 Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora do `radius_m`, a foto retorna `403 locked`.
@@ -169,22 +188,28 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `59e4aec` | Perfil com estatísticas, excluir fotos (só autor), autor vê foto a qualquer distância |
 | `475abae` | Corrige tela preta (Leaflet local), PWA instalável, tratamento de erro de boot |
 | `ab34bc0` | Endurece contra tela preta: erro de boot visível, cache SW v2, fallback app.js |
+| `ad97d9f` | Adiciona relatório do projeto e marca domínio próprio como concluído |
+| `bef3ac6` | Correções da avaliação: rate limit, expiração de sessão, 500 genérico, logs, fim do N+1, paginação, testes |
+| `7fa64c8` | Corrige bug crítico: prefixo `/api` duplicado em app.js (404 → tela preta). SW v3 |
+| *(atual)* | **Novas funcionalidades:** seguidores/follow + feed "Seguindo", busca, notificações, bio+avatar, compartilhar link, denúncia, modo claro/escuro. Fix: botão curtir (span `like-count` era destruído ao abrir o modal do spot). SW v4. 15 testes |
 
 ---
 
 ## 12. Pendências e melhorias sugeridas
 
 1. **Servir imagens por CDN/arquivo** em vez de base64 no banco (escalabilidade e tamanho).
-2. **Rate limiting** e **expiração de sessão** para produção mais robusta.
-3. **Paginação do feed** e filtro "próximos de mim".
-4. **Notificações push** (ex.: "alguém comentou em um lugar que você curtiu").
-5. Limpeza: remover `Curriculo_Camila_da_Silva.md` já feita (arquivo alheio ao projeto).
+2. **Notificações push** (ex.: "alguém comentou em um lugar que você curtiu").
+3. Compressão da imagem no cliente antes do upload; gzip nas respostas.
 
 ### ✔ Concluídos
 - Domínio próprio **`neargram.duckdns.org`** configurado e funcionando (A record + Custom Domain no Render).
 - Endurecimento da tela preta (erro de boot visível, cache SW v2, fallback `app.js`).
 - **Endurecimento do backend (avaliação):** rate limiting em login/registro (429), expiração de sessões (30 dias) + `Max-Age` no cookie, 500 sem vazar detalhes internos, logs de requisição habilitados, consultas em lote (fim do N+1), paginação (`limit`) em `/api/spots`.
-- **Testes automatizados:** `tests/test_api.py` (9 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit.
+- **Testes automatizados:** `tests/test_api.py` (15 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit, bio/avatar, follow, notificações, feed "seguindo", denúncia e busca.
+- **Redes sociais:** seguidores/follow, perfil público, feed "Seguindo", notificações de curtida/comentário/follow, busca de lugares e usuários.
+- **Perfil rico:** bio e foto de avatar (upload), stats de seguidores/seguindo.
+- **Compartilhamento e moderação:** link direto do lugar (`#spot=ID`) e denúncia de conteúdo impróprio.
+- **UX:** modo claro/escuro persistente e fix do botão curtir no modal do spot.
 
 ---
 

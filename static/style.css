@@ -353,3 +353,98 @@ main {
 
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: #333; border-radius: 8px; }
+
+/* ---------- Avatares ---------- */
+.avatar-nav { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex: none; background: var(--panel2); }
+.avatar-lg { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; flex: none; background: var(--panel2); }
+.avatar-sm { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex: none; background: var(--panel2); display: inline-block; }
+.avatar-xs { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; vertical-align: middle; background: var(--panel2); display: inline-block; }
+.avatar-nav.no-avatar, .avatar-lg.no-avatar, .avatar-sm.no-avatar, .avatar-xs.no-avatar {
+  background: var(--grad);
+}
+.avatar-nav.no-avatar::after, .avatar-xs.no-avatar::after { content: ""; }
+
+/* ---------- Header buttons / badge ---------- */
+#user-chip > button { font-size: 16px; padding: 7px 10px; line-height: 1; }
+#btn-notifs { position: relative; }
+.badge {
+  position: absolute; top: -5px; right: -6px;
+  background: var(--accent); color: #fff;
+  font-size: 10px; font-weight: 700;
+  min-width: 18px; height: 18px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px;
+}
+
+/* ---------- Feed tabs ---------- */
+.feed-tabs { display: flex; gap: 6px; margin-bottom: 4px; }
+.feed-tab { flex: 1; background: var(--panel2); color: var(--muted); font-size: 13px; padding: 8px; }
+.feed-tab.active { background: var(--grad); color: #fff; }
+
+/* ---------- Autor clicável ---------- */
+.link-author {
+  background: none; border: none; padding: 0; margin: 0;
+  color: var(--accent); font-weight: 700; font-size: inherit;
+  display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;
+}
+.link-author:hover { text-decoration: underline; }
+
+/* ---------- Perfil: cabeçalho + edição ---------- */
+.profile-head { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.profile-head-info { flex: 1; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.profile-bio { font-size: 14px; line-height: 1.4; white-space: pre-wrap; }
+.profile-edit { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; padding: 12px; background: var(--panel2); border-radius: 10px; }
+.profile-edit textarea { resize: none; }
+.file-btn { cursor: pointer; font-size: 13px; color: var(--text); background: var(--panel); border: 1px dashed #555; border-radius: 10px; padding: 9px 12px; text-align: center; }
+
+/* ---------- Busca ---------- */
+.search-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.search-row input { flex: 1; }
+#search-results { display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow-y: auto; }
+.search-row-item {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--panel2); border-radius: 10px; padding: 10px 12px; cursor: pointer;
+  font-size: 14px;
+}
+.search-row-item:hover { border: 1px solid var(--accent); }
+.search-row-item small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-row-name { font-weight: 600; }
+.search-thumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; flex: none; background: var(--panel); display: flex; align-items: center; justify-content: center; }
+.search-thumb.lock { font-size: 18px; }
+
+/* ---------- Notificações ---------- */
+#notif-list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; }
+.notif { background: var(--panel2); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.notif.unread { border-left: 3px solid var(--accent); }
+.notif-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+.notif-actor { font-weight: 700; color: var(--accent); }
+.notif-time { font-size: 10px; color: var(--muted); }
+.notif-goto { margin-top: 8px; font-size: 12px; background: var(--panel); color: var(--accent); }
+
+/* ---------- Denúncia ---------- */
+#report-box { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 12px; background: var(--panel2); border-radius: 10px; }
+#report-msg { font-size: 12px; color: var(--ok); }
+.spot-actions .btn-like, .spot-actions button { font-size: 16px; }
+
+/* ---------- Tema claro ---------- */
+html[data-theme="light"] {
+  --grad: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045);
+  --bg: #f4f4f7;
+  --panel: #ffffff;
+  --panel2: #ececf2;
+  --text: #16161d;
+  --muted: #5f5f70;
+  --accent: #d81b60;
+  --ok: #1f9d55;
+}
+html[data-theme="light"] body { background: var(--bg); }
+html[data-theme="light"] .feed-card,
+html[data-theme="light"] .modal-box,
+html[data-theme="light"] .auth-card,
+html[data-theme="light"] header { border-color: #e0e0e6; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+html[data-theme="light"] #map { border-color: #d5d5dd; }
+html[data-theme="light"] input,
+html[data-theme="light"] textarea { border-color: #d5d5dd; background: #fff; }
+html[data-theme="light"] .leaflet-container { background: #e6e6ec; }
+html[data-theme="light"] .leaflet-popup-content-wrapper, html[data-theme="light"] .leaflet-popup-tip { background: #fff; color: var(--text); }
+html[data-theme="light"] .map-controls { background: rgba(255,255,255,.85); }

@@ -54,6 +54,8 @@ def schema():
                 id SERIAL PRIMARY KEY,
                 username VARCHAR(24) UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
+                bio TEXT NOT NULL DEFAULT '',
+                avatar TEXT NOT NULL DEFAULT '',
                 created_at TEXT DEFAULT {now})""",
             f"""CREATE TABLE IF NOT EXISTS sessions (
                 token TEXT PRIMARY KEY,
@@ -81,12 +83,34 @@ def schema():
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 text VARCHAR(500) NOT NULL,
                 created_at TEXT DEFAULT {now})""",
+            f"""CREATE TABLE IF NOT EXISTS follows (
+                follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TEXT DEFAULT {now},
+                PRIMARY KEY (follower_id, followee_id))""",
+            f"""CREATE TABLE IF NOT EXISTS notifications (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                actor_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                type VARCHAR(20) NOT NULL,
+                spot_id INTEGER REFERENCES spots(id) ON DELETE CASCADE,
+                text TEXT DEFAULT '',
+                read INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT {now})""",
+            f"""CREATE TABLE IF NOT EXISTS reports (
+                id SERIAL PRIMARY KEY,
+                reporter_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                spot_id INTEGER NOT NULL REFERENCES spots(id) ON DELETE CASCADE,
+                reason TEXT NOT NULL,
+                created_at TEXT DEFAULT {now})""",
         ]
     return [
         """CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            bio TEXT NOT NULL DEFAULT '',
+            avatar TEXT NOT NULL DEFAULT '',
             created_at TEXT DEFAULT (datetime('now')))""",
         """CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
@@ -114,7 +138,50 @@ def schema():
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             text TEXT NOT NULL,
             created_at TEXT DEFAULT (datetime('now')))""",
+        """CREATE TABLE IF NOT EXISTS follows (
+            follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (follower_id, followee_id))""",
+        """CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            actor_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            type TEXT NOT NULL,
+            spot_id INTEGER REFERENCES spots(id) ON DELETE CASCADE,
+            text TEXT DEFAULT '',
+            read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')))""",
+        """CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reporter_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            spot_id INTEGER NOT NULL REFERENCES spots(id) ON DELETE CASCADE,
+            reason TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')))""",
     ]
+
+
+def _columns(conn, table):
+    if PG:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = %s AND table_schema = ANY (current_schemas(false))",
+                (table,),
+            )
+            return {r[0] for r in cur.fetchall()}
+    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def migrate():
+    conn = connect()
+    cols = _columns(conn, "users")
+    if "bio" not in cols:
+        execute(conn, "ALTER TABLE users ADD COLUMN bio TEXT NOT NULL DEFAULT ''")
+    if "avatar" not in cols:
+        execute(conn, "ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
+    conn.commit()
+    conn.close()
 
 
 def init():
@@ -127,3 +194,4 @@ def init():
         execute(conn, stmt)
     conn.commit()
     conn.close()
+    migrate()
