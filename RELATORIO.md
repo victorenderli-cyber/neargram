@@ -226,7 +226,8 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `30afa32` | **UX:** tema automático pelo sistema + tiles CartoDB por tema, lightbox de fotos, curtida rápida no card do feed, botão "ver no mapa", `loading="lazy"` nas imagens, gerenciar perfil a partir do perfil público, rate limit em curtir/comentar/follow. SW v8. 25 testes |
 | `8a79fce` | **Melhorias:** rate limit por usuário, `has_more` consistente com ordenação por proximidade, SW não cacha tiles CartoDB, preconnect + acessibilidade (aria-labels, `role="dialog"`, `aria-live`), manifest com shortcuts e deep-link `?action=`, compressão WebP com fallback. SW v9. 26 testes |
 | `c08726c` | **Mapa em modo satélite:** Esri World Imagery + camada de rótulos (CSP/preconnect/SW atualizados, OSM removido). SW v10 |
-| *(atual)* | **Melhorias:** validação de username (regex `[A-Za-z0-9_]{4,24}`, unicidade case-insensitive), senha mínima 6 (registro e troca), avisos de offline/online no cliente, `minlength`/`pattern` no formulário de registro. 28 testes |
+| `0f67b0e` | **Melhorias:** validação de username (regex `[A-Za-z0-9_]{4,24}`, unicidade case-insensitive), senha mínima 6 (registro e troca), avisos offline/online, `minlength`/`pattern` no registro, CSP sem OSM. 28 testes |
+| *(atual)* | **Melhorias:** editar comentário (PATCH `/api/comments/{id}`), listas de seguidores/seguindo no perfil (avatares clicáveis), `mine` nos comentários (API), rate limit na busca, Cache-Control por tipo (HTML/JSON `no-cache`, estáticos 1 dia). 31 testes |
 
 ---
 

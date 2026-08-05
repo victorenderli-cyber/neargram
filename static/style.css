@@ -330,9 +330,17 @@ main {
 
 /* perfil */
 .profile-stats { display: flex; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
-.profile-stats .stat { background: var(--panel2); border-radius: 10px; padding: 10px 14px; text-align: center; flex: 1; min-width: 80px; }
+.profile-stats .stat {
+  background: var(--panel2); border-radius: 10px; padding: 10px 14px; text-align: center;
+  flex: 1; min-width: 80px; border: none; color: var(--text); cursor: pointer; transition: border-color .12s;
+}
+.profile-stats .stat:hover { border: 1px solid var(--accent); padding: 9px 13px; }
 .profile-stats .stat b { display: block; font-size: 20px; }
 .profile-stats .stat span { font-size: 12px; color: var(--muted); }
+.user-lists { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; max-height: 220px; overflow-y: auto; padding: 10px; background: var(--panel2); border-radius: 10px; }
+.user-lists.hidden { display: none; }
+.user-list-row { display: flex; align-items: center; gap: 8px; background: var(--panel); border: none; color: var(--text); padding: 8px 10px; border-radius: 8px; font-size: 13px; text-align: left; }
+.user-list-row:hover { border: 1px solid var(--accent); padding: 7px 9px; }
 .profile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .profile-grid .pg-item { position: relative; border-radius: 10px; overflow: hidden; aspect-ratio: 1; background: var(--panel2); cursor: pointer; }
 .profile-grid .pg-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -353,6 +361,12 @@ main {
   font-size: 12px; padding: 0 4px; line-height: 1;
 }
 .comment .c-del:hover { color: var(--accent); }
+.comment .c-edit {
+  float: right; margin-left: 8px; background: transparent; color: var(--muted);
+  font-size: 12px; padding: 0 4px; line-height: 1;
+}
+.comment .c-edit:hover { color: var(--accent); }
+.comment .c-text { overflow-wrap: anywhere; }
 #comment-form { display: flex; gap: 8px; }
 #comment-form input { flex: 1; }
 

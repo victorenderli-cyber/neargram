@@ -508,6 +508,53 @@ class ApiTestCase(unittest.TestCase):
         )
         self.assertEqual(status, 400)
 
+    def test_29_edit_comment(self):
+        author = self.register("helena")
+        _, _, create = self.call(
+            "/api/spots", "POST",
+            {"name": "Praça", "lat": -22.95, "lng": -43.21, "photo": PNG, "radius_m": 500},
+            author,
+        )
+        spot_id = create["spot"]["id"]
+        fan = self.register("ivan")
+        _, _, data = self.call(f"/api/spots/{spot_id}/comments", "POST", {"text": "original"}, fan)
+        comment_id = data.get("comment_id")
+        if comment_id is None:
+            _, _, feed = self.call("/api/spots?lat=-22.95&lng=-43.21")
+            spot = next(s for s in feed["spots"] if s["id"] == spot_id)
+            comment_id = spot["comments"][0]["id"]
+        intruder = self.register("joao")
+        status, _, _ = self.call(f"/api/comments/{comment_id}", "PATCH", {"text": "invadido"}, intruder)
+        self.assertEqual(status, 403)
+        status, _, _ = self.call(f"/api/comments/{comment_id}", "PATCH", {"text": "editado"}, fan)
+        self.assertEqual(status, 200)
+        _, _, feed = self.call("/api/spots?lat=-22.95&lng=-43.21", cookie=fan)
+        spot = next(s for s in feed["spots"] if s["id"] == spot_id)
+        comment = next(c for c in spot["comments"] if c["id"] == comment_id)
+        self.assertEqual(comment["text"], "editado")
+        self.assertTrue(comment["mine"])
+
+    def test_30_follow_lists(self):
+        a = self.register("kaio")
+        b = self.register("lara")
+        _, _, pub_kaio = self.call("/api/users/kaio")
+        kaio_id = pub_kaio["id"]
+        status, _, data = self.call(f"/api/users/{kaio_id}/follow", "POST", {}, b)
+        self.assertEqual(status, 200)
+        _, _, pub_a = self.call("/api/users/kaio", cookie=a)
+        self.assertTrue(any(u["username"] == "lara" for u in pub_a["followers_list"]))
+        _, _, pub_b = self.call("/api/users/lara", cookie=b)
+        self.assertTrue(any(u["username"] == "kaio" for u in pub_b["following_list"]))
+
+    def test_31_search_rate_limit(self):
+        self.register("marcos")
+        blocked = False
+        for _ in range(12):
+            status, _, _ = self.call("/api/search?q=marcos")
+            if status == 429:
+                blocked = True
+        self.assertTrue(blocked)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -129,7 +129,7 @@ def public_spot(spot, viewer_id=None, viewer_lat=None, viewer_lng=None, as_autho
         ).fetchone() is not None
     comments = db.execute(
         conn,
-        """SELECT c.id, c.text, c.created_at, u.username
+        """SELECT c.id, c.user_id, c.text, c.created_at, u.username
            FROM comments c JOIN users u ON u.id = c.user_id
            WHERE c.spot_id = ? ORDER BY c.created_at ASC""",
         (spot["id"],),
@@ -163,7 +163,11 @@ def public_spot(spot, viewer_id=None, viewer_lat=None, viewer_lng=None, as_autho
         "like_count": like_count,
         "liked": liked,
         "comments": [
-            {"id": c["id"], "text": c["text"], "author": c["username"], "created_at": c["created_at"]}
+            {
+                "id": c["id"], "text": c["text"], "author": c["username"],
+                "created_at": c["created_at"],
+                "mine": bool(viewer_id and viewer_id == c["user_id"]),
+            }
             for c in comments
         ],
         "distance_m": distance_m,
@@ -208,13 +212,17 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
         comments = {}
         for row in db.execute(
             conn,
-            f"""SELECT c.spot_id, c.id, c.text, c.created_at, u.username
+            f"""SELECT c.spot_id, c.id, c.user_id, c.text, c.created_at, u.username
                 FROM comments c JOIN users u ON u.id = c.user_id
                 WHERE c.spot_id IN ({ph}) ORDER BY c.created_at ASC""",
             ids,
         ):
             comments.setdefault(row["spot_id"], []).append(
-                {"id": row["id"], "text": row["text"], "author": row["username"], "created_at": row["created_at"]}
+                {
+                    "id": row["id"], "text": row["text"], "author": row["username"],
+                    "created_at": row["created_at"],
+                    "mine": bool(viewer_id and viewer_id == row["user_id"]),
+                }
             )
     finally:
         conn.close()
@@ -500,6 +508,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_edit_spot()
             elif method == "DELETE" and path.startswith("/api/comments/"):
                 self.api_delete_comment()
+            elif method == "PATCH" and path.startswith("/api/comments/"):
+                self.api_edit_comment()
             elif method == "DELETE" and path == "/api/me":
                 self.api_delete_account()
             elif method == "GET" and path == "/api/push/vapid-public-key":
@@ -608,6 +618,24 @@ class Handler(BaseHTTPRequestHandler):
         rows = db.execute(
             conn, "SELECT * FROM spots WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)
         ).fetchall()
+        followers = [
+            {"username": r["username"], "avatar": r["avatar"] or ""}
+            for r in db.execute(
+                conn,
+                """SELECT u.username, u.avatar FROM follows f JOIN users u ON u.id = f.follower_id
+                   WHERE f.followee_id = ? ORDER BY u.username LIMIT 50""",
+                (user["id"],),
+            )
+        ]
+        following = [
+            {"username": r["username"], "avatar": r["avatar"] or ""}
+            for r in db.execute(
+                conn,
+                """SELECT u.username, u.avatar FROM follows f JOIN users u ON u.id = f.followee_id
+                   WHERE f.follower_id = ? ORDER BY u.username LIMIT 50""",
+                (user["id"],),
+            )
+        ]
         conn.close()
         try:
             lat = float(query.get("lat", [""])[0]) if query.get("lat") else None
@@ -617,6 +645,8 @@ class Handler(BaseHTTPRequestHandler):
         spots = _bulk_public(rows, viewer["id"] if viewer else None, lat, lng)
         pub = _public_user(user, viewer["id"] if viewer else None)
         pub["spots"] = spots
+        pub["followers_list"] = followers
+        pub["following_list"] = following
         self._send(200, pub)
 
     def api_follow(self):
@@ -663,6 +693,9 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"following": following, "followers": count})
 
     def api_search(self, query):
+        if _rate_limited(f"srch:{self._client_ip()}"):
+            self._send(429, {"error": "muitas buscas, aguarde um pouco"})
+            return
         q = (query.get("q", [""])[0] or "").strip()
         if len(q) < 1:
             raise ValueError("busca vazia")
@@ -904,6 +937,35 @@ class Handler(BaseHTTPRequestHandler):
             self._send(403, {"error": "você não pode excluir esse comentário"})
             return
         db.execute(conn, "DELETE FROM comments WHERE id = ?", (comment_id,))
+        conn.commit()
+        conn.close()
+        self._send(200, {"ok": True})
+
+    def api_edit_comment(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        try:
+            comment_id = int(urlparse(self.path).path.strip("/").split("/")[-1])
+        except ValueError:
+            raise ValueError("id inválido")
+        data = self._read_json()
+        text = (data.get("text") or "").strip()
+        if not (1 <= len(text) <= 500):
+            raise ValueError("comentário deve ter entre 1 e 500 caracteres")
+        conn = db.connect()
+        row = db.execute(
+            conn, "SELECT id, user_id FROM comments WHERE id = ?", (comment_id,)
+        ).fetchone()
+        if not row:
+            conn.close()
+            raise ValueError("comentário não existe")
+        if user["id"] != row["user_id"]:
+            conn.close()
+            self._send(403, {"error": "você não pode editar esse comentário"})
+            return
+        db.execute(conn, "UPDATE comments SET text = ? WHERE id = ?", (text, comment_id))
         conn.commit()
         conn.close()
         self._send(200, {"ok": True})
@@ -1240,13 +1302,14 @@ class Handler(BaseHTTPRequestHandler):
         with open(full, "rb") as f:
             body = f.read()
         body, encoding = self._gzip_if_possible(body, mime)
+        cache = "no-cache" if ext in (".html", ".json", ".webmanifest") else "public, max-age=86400"
         self.send_response(200)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(body)))
         if encoding:
             self.send_header("Content-Encoding", encoding)
         self.send_header("Vary", "Accept-Encoding")
-        self.send_header("Cache-Control", "public, max-age=3600")
+        self.send_header("Cache-Control", cache)
         self._security_headers()
         self.end_headers()
         self.wfile.write(body)

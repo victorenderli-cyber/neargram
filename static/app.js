@@ -762,16 +762,34 @@ async function showSpotModal(spot) {
   cl.innerHTML = spot.comments.length
     ? spot.comments.map((c) => {
         const mine = spot.mine || (state.user && c.author === state.user.username);
+        const isAuthor = state.user && c.author === state.user.username;
         return `<div class="comment">
           <button class="link-author" data-user="${esc(c.author)}">@${esc(c.author)}</button>
-          ${esc(c.text)}
+          <span class="c-text">${esc(c.text)}</span>
           <span class="c-time">${timeAgo(c.created_at)}</span>
+          ${isAuthor ? `<button class="c-edit" data-id="${c.id}" data-text="${esc(c.text)}" title="Editar comentário">✏️</button>` : ""}
           ${mine ? `<button class="c-del" data-id="${c.id}" title="Excluir comentário">✕</button>` : ""}
         </div>`;
       }).join("")
     : `<div style="color:var(--muted);font-size:13px">Sem comentários ainda.</div>`;
   cl.querySelectorAll(".link-author").forEach((b) =>
     b.addEventListener("click", () => { hideModal("modal-spot"); openUserProfile(b.dataset.user); })
+  );
+  cl.querySelectorAll(".c-edit").forEach((b) =>
+    b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const t = prompt("Editar comentário", b.dataset.text);
+      if (t === null) return;
+      const text = t.trim();
+      if (!text) return;
+      try {
+        await api(`/comments/${b.dataset.id}`, { method: "PATCH", body: { text } });
+        toast("Comentário editado", "ok");
+        openSpotDetail(state.selectedSpotId);
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    })
   );
   cl.querySelectorAll(".c-del").forEach((b) =>
     b.addEventListener("click", async (e) => {
@@ -1083,9 +1101,14 @@ async function openUserProfile(username) {
     }
     $("user-follow-hint").textContent = d.follows_me ? "Este perfil segue você" : "";
     $("user-stats").innerHTML = `
-      <div class="stat"><b>${d.stats.spots}</b><span>fotos</span></div>
-      <div class="stat"><b>${d.stats.followers}</b><span>seguidores</span></div>
-      <div class="stat"><b>${d.stats.following}</b><span>seguindo</span></div>`;
+      <button class="stat" data-list="followers"><b>${d.stats.followers}</b><span>seguidores</span></button>
+      <button class="stat" data-list="following"><b>${d.stats.following}</b><span>seguindo</span></button>
+      <button class="stat" data-list="spots"><b>${d.stats.spots}</b><span>fotos</span></button>`;
+    $("user-lists").classList.add("hidden");
+    $("user-lists").innerHTML = "";
+    $("user-stats").querySelectorAll("[data-list]").forEach((btn) =>
+      btn.addEventListener("click", () => toggleUserList(btn.dataset.list, d))
+    );
     $("user-self-actions").classList.toggle("hidden", !isSelf);
     renderProfileGrid("user-spots", "user-empty", d.spots, false);
     window._userProfile = d;
@@ -1105,13 +1128,39 @@ $("btn-follow").addEventListener("click", async () => {
     $("btn-follow").textContent = res.following ? "✓ Seguindo" : "Seguir";
     toast(res.following ? `Agora você segue @${u.username}` : `Você deixou de seguir @${u.username}`);
     const statEls = $("user-stats").querySelectorAll(".stat");
-    if (statEls[1]) statEls[1].querySelector("b").textContent = res.followers;
+    if (statEls[0]) statEls[0].querySelector("b").textContent = res.followers;
     loadNotifications();
     if (state.feedMode === "following") refreshSpots();
   } catch (e) {
     toast(e.message, "err");
   }
 });
+
+function toggleUserList(which, d) {
+  const box = $("user-lists");
+  if (box.dataset.open === which) {
+    box.dataset.open = "";
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  box.dataset.open = which;
+  box.innerHTML = "";
+  const items = which === "followers" ? d.followers_list : d.following_list;
+  if (!items || !items.length) {
+    box.innerHTML = `<p class="hint">Nenhum ${which === "followers" ? "seguidor" : "seguindo"} ainda.</p>`;
+    box.classList.remove("hidden");
+    return;
+  }
+  items.forEach((u) => {
+    const row = document.createElement("button");
+    row.className = "user-list-row";
+    row.innerHTML = `${u.avatar ? `<img class="avatar-sm" src="${u.avatar}" alt=""/>` : `<span class="avatar-sm no-avatar"></span>`} <span>@${esc(u.username)}</span>`;
+    row.addEventListener("click", () => { hideModal("modal-user"); openUserProfile(u.username); });
+    box.appendChild(row);
+  });
+  box.classList.remove("hidden");
+}
 
 $("btn-manage-profile").addEventListener("click", () => {
   hideModal("modal-user");
