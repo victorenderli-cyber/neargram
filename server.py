@@ -623,7 +623,7 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             self._send(401, {"error": "faça login primeiro"})
             return
-        if _rate_limited(f"fol:{self._client_ip()}"):
+        if _rate_limited(f"fol:{self._client_ip()}:{user['id']}"):
             self._send(429, {"error": "muitas ações, aguarde um pouco"})
             return
         try:
@@ -1014,12 +1014,6 @@ class Handler(BaseHTTPRequestHandler):
         feed_following = (query.get("feed") or [""])[0] == "following"
         conn = db.connect()
         if feed_following and viewer_id:
-            count = db.execute(
-                conn,
-                """SELECT COUNT(*) FROM spots sp
-                   JOIN follows f ON f.followee_id = sp.user_id AND f.follower_id = ?""",
-                (viewer_id,),
-            ).fetchone()[0]
             rows = db.execute(
                 conn,
                 """SELECT sp.* FROM spots sp
@@ -1028,7 +1022,6 @@ class Handler(BaseHTTPRequestHandler):
                 (viewer_id, MAX_SPOT_LIMIT),
             ).fetchall()
         else:
-            count = db.execute(conn, "SELECT COUNT(*) FROM spots").fetchone()[0]
             rows = db.execute(
                 conn, "SELECT * FROM spots ORDER BY created_at DESC LIMIT ?", (MAX_SPOT_LIMIT,)
             ).fetchall()
@@ -1045,9 +1038,8 @@ class Handler(BaseHTTPRequestHandler):
                     s["distance_m"] if s["distance_m"] is not None else float("inf"),
                 )
             )
-        count = min(count, MAX_SPOT_LIMIT)
         page = spots[offset:offset + limit]
-        has_more = (offset + len(page)) < count
+        has_more = (offset + len(page)) < len(spots)
         self._send(200, {"spots": page, "radius_m": DEFAULT_RADIUS_M, "has_more": has_more})
 
     def api_create_spot(self):
@@ -1055,7 +1047,7 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             self._send(401, {"error": "faça login primeiro"})
             return
-        if _rate_limited(f"spot:{self._client_ip()}"):
+        if _rate_limited(f"spot:{self._client_ip()}:{user['id']}"):
             self._send(429, {"error": "muitas publicações, aguarde um pouco"})
             return
         data = self._read_json()
@@ -1151,7 +1143,7 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             self._send(401, {"error": "faça login primeiro"})
             return
-        if _rate_limited(f"like:{self._client_ip()}"):
+        if _rate_limited(f"like:{self._client_ip()}:{user['id']}"):
             self._send(429, {"error": "muitas ações, aguarde um pouco"})
             return
         spot_id = self._spot_id_from_path()
@@ -1187,7 +1179,7 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             self._send(401, {"error": "faça login primeiro"})
             return
-        if _rate_limited(f"com:{self._client_ip()}"):
+        if _rate_limited(f"com:{self._client_ip()}:{user['id']}"):
             self._send(429, {"error": "muitos comentários, aguarde um pouco"})
             return
         spot_id = self._spot_id_from_path()

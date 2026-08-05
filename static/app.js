@@ -107,6 +107,14 @@ function setAvatar(id, dataUrl) {
   }
 }
 
+const _webpSupported = (() => {
+  try {
+    return document.createElement("canvas").toDataURL("image/webp").startsWith("data:image/webp");
+  } catch (e) {
+    return false;
+  }
+})();
+
 function compressImage(dataUrl, maxDim, quality) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -120,8 +128,10 @@ function compressImage(dataUrl, maxDim, quality) {
         canvas.width = width;
         canvas.height = height;
         canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        let out = canvas.toDataURL("image/jpeg", quality);
-        if (out.length > MAX_UPLOAD_B64) out = canvas.toDataURL("image/jpeg", 0.65);
+        const mime = _webpSupported ? "image/webp" : "image/jpeg";
+        let out = canvas.toDataURL(mime, quality);
+        if (out.length > MAX_UPLOAD_B64) out = canvas.toDataURL(mime, 0.65);
+        if (out.length > MAX_UPLOAD_B64 && mime !== "image/jpeg") out = canvas.toDataURL("image/jpeg", 0.65);
         resolve(out);
       } catch (e) {
         reject(e);
@@ -899,6 +909,12 @@ $("btn-new").addEventListener("click", () => {
   showModal("modal-new");
 });
 
+function openNewModal() {
+  if (state.currentPos) { $("btn-new").click(); return; }
+  const iv = setInterval(() => { if (state.currentPos) { clearInterval(iv); $("btn-new").click(); } }, 500);
+  setTimeout(() => clearInterval(iv), 20000);
+}
+
 $("photo-drop").addEventListener("click", () => $("photo-input").click());
 $("photo-input").addEventListener("change", (e) => {
   const f = e.target.files[0];
@@ -1109,6 +1125,10 @@ function setFeed(mode) {
 
 /* ---------------- Deep link (#spot=ID) ---------------- */
 function handleDeepLink() {
+  const params = new URLSearchParams(location.search);
+  const action = params.get("action");
+  if (action === "new") { openNewModal(); return; }
+  if (action === "search") { showModal("modal-search"); return; }
   const m = location.hash.match(/^#spot=(\d+)$/);
   if (!m) return;
   const id = parseInt(m[1], 10);

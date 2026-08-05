@@ -13,6 +13,10 @@
 <link rel="manifest" href="/manifest.json" />
 <link rel="icon" type="image/png" href="/icons/icon-32.png" />
 <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+<link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin />
+<link rel="preconnect" href="https://res.cloudinary.com" crossorigin />
+<link rel="dns-prefetch" href="https://basemaps.cartocdn.com" />
+<link rel="dns-prefetch" href="https://res.cloudinary.com" />
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" />
 <link rel="stylesheet" href="/vendor/leaflet.markercluster/MarkerCluster.css" />
@@ -21,8 +25,8 @@
 <body>
 
 <div id="fatal" class="hidden"></div>
-<div id="toasts"></div>
-<div id="lightbox" class="lightbox hidden"><img id="lightbox-img" alt="Foto ampliada" /></div>
+<div id="toasts" role="status" aria-live="polite"></div>
+<div id="lightbox" class="lightbox hidden" role="dialog" aria-modal="true" aria-label="Foto ampliada"><img id="lightbox-img" alt="Foto ampliada" /></div>
 
 <div id="auth-view" class="hidden">
   <div class="auth-card">
@@ -47,10 +51,10 @@
     <div id="user-chip">
       <img id="avatar-nav" class="avatar-nav" alt="" />
       <span id="username-label"></span>
-      <button id="btn-search" title="Buscar lugares e usuários">🔍</button>
-      <button id="btn-notifs" title="Notificações">🔔<span id="notif-badge" class="badge hidden"></span></button>
-      <button id="btn-theme" title="Alternar tema">🌙</button>
-      <button id="btn-install" class="hidden" title="Instalar o app">⬇️</button>
+      <button id="btn-search" title="Buscar lugares e usuários" aria-label="Buscar lugares e usuários">🔍</button>
+      <button id="btn-notifs" title="Notificações" aria-label="Notificações">🔔<span id="notif-badge" class="badge hidden"></span></button>
+      <button id="btn-theme" title="Alternar tema" aria-label="Alternar tema claro e escuro">🌙</button>
+      <button id="btn-install" class="hidden" title="Instalar o app" aria-label="Instalar o app">⬇️</button>
       <button id="btn-profile" title="Meu perfil">Perfil</button>
       <button id="btn-logout" title="Sair">Sair</button>
     </div>
@@ -67,7 +71,7 @@
       <div id="map"></div>
       <div id="map-loading" class="overlay-msg">Carregando mapa…</div>
       <div class="map-controls">
-        <button id="btn-locate" title="Centralizar na minha posição">📍 Centralizar</button>
+        <button id="btn-locate" title="Centralizar na minha posição" aria-label="Centralizar na minha posição">📍 Centralizar</button>
         <button id="btn-new" class="btn-primary" title="Publicar foto de um lugar">＋ Nova foto</button>
       </div>
       <div id="mode-controls" class="map-controls bottom">
@@ -87,7 +91,7 @@
   </main>
 </div>
 
-<div id="modal-new" class="modal hidden">
+<div id="modal-new" class="modal hidden" role="dialog" aria-modal="true" aria-label="Publicar foto">
   <div class="modal-box">
     <div class="modal-head"><h3>Publicar foto de um lugar</h3><button class="btn-close" data-close>×</button></div>
     <p class="hint">Sua foto fica "presa" na sua posição atual. Para desbloquear a foto de outro lugar, você precisa chegar perto dele.</p>
@@ -117,7 +121,7 @@
   </div>
 </div>
 
-<div id="modal-spot" class="modal hidden">
+<div id="modal-spot" class="modal hidden" role="dialog" aria-modal="true" aria-label="Detalhes do lugar">
   <div class="modal-box spot-box">
     <div class="modal-head"><h3 id="spot-title"></h3><button class="btn-close" data-close>×</button></div>
     <div id="spot-photo" class="spot-photo"></div>
@@ -168,7 +172,7 @@
   </div>
 </div>
 
-<div id="modal-profile" class="modal hidden">
+<div id="modal-profile" class="modal hidden" role="dialog" aria-modal="true" aria-label="Meu perfil">
   <div class="modal-box">
     <div class="modal-head"><h3 id="profile-title">Meu perfil</h3><button class="btn-close" data-close>×</button></div>
     <div class="profile-head">
@@ -214,7 +218,7 @@
   </div>
 </div>
 
-<div id="modal-user" class="modal hidden">
+<div id="modal-user" class="modal hidden" role="dialog" aria-modal="true" aria-label="Perfil do usuário">
   <div class="modal-box">
     <div class="modal-head"><h3 id="user-title"></h3><button class="btn-close" data-close>×</button></div>
     <div class="profile-head">
@@ -232,18 +236,18 @@
   </div>
 </div>
 
-<div id="modal-search" class="modal hidden">
+<div id="modal-search" class="modal hidden" role="dialog" aria-modal="true" aria-label="Buscar">
   <div class="modal-box">
     <div class="modal-head"><h3>Buscar</h3><button class="btn-close" data-close>×</button></div>
     <div class="search-row">
-      <input id="search-input" type="search" placeholder="Lugares ou usuários…" maxlength="60" />
+      <input id="search-input" type="search" placeholder="Lugares ou usuários…" maxlength="60" aria-label="Buscar lugares ou usuários" />
       <button id="btn-search-go" class="btn-primary">Buscar</button>
     </div>
     <div id="search-results"></div>
   </div>
 </div>
 
-<div id="modal-notifs" class="modal hidden">
+<div id="modal-notifs" class="modal hidden" role="dialog" aria-modal="true" aria-label="Notificações">
   <div class="modal-box">
     <div class="modal-head"><h3>Notificações</h3><button class="btn-close" data-close>×</button></div>
     <div id="notif-list"></div>

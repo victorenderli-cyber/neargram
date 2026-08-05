@@ -466,6 +466,25 @@ class ApiTestCase(unittest.TestCase):
                 blocked = True
         self.assertTrue(blocked)
 
+    def test_26_rate_limit_per_user(self):
+        a = self.register("pipa")
+        b = self.register("pipo")
+        status, _, data = self.call(
+            "/api/spots", "POST",
+            {"name": "Base", "lat": -22.95, "lng": -43.21, "photo": PNG, "radius_m": 500},
+            a,
+        )
+        self.assertEqual(status, 201)
+        spot_id = data["spot"]["id"]
+        blocked = False
+        for _ in range(12):
+            status, _, _ = self.call(f"/api/spots/{spot_id}/like", "POST", {}, a)
+            if status == 429:
+                blocked = True
+        self.assertTrue(blocked)
+        status, _, _ = self.call(f"/api/spots/{spot_id}/like", "POST", {}, b)
+        self.assertEqual(status, 200)
+
 
 if __name__ == "__main__":
     unittest.main()
