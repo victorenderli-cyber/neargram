@@ -1,4 +1,4 @@
-const CACHE = "neargram-v9";
+const CACHE = "neargram-v10";
 const SHELL = [
   "/",
   "/index.html",
@@ -41,8 +41,8 @@ self.addEventListener("message", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
 
-  // não interceptar chamadas de API nem tiles do mapa (OSM e CartoDB)
-  if (url.pathname.startsWith("/api/") || url.hostname.includes("tile.") || url.hostname.includes("cartocdn")) return;
+  // não interceptar chamadas de API nem tiles do mapa (OSM, CartoDB, Esri)
+  if (url.pathname.startsWith("/api/") || url.hostname.includes("tile.") || url.hostname.includes("cartocdn") || url.hostname.includes("arcgisonline")) return;
 
   if (e.request.method !== "GET") return;
 

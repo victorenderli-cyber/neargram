@@ -63,10 +63,8 @@ $("btn-install").addEventListener("click", async () => {
 });
 
 /* ---------------- Tema claro/escuro ---------------- */
-const TILE_URLS = {
-  dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-  light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-};
+const SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const SATELLITE_LABELS_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
 
 function applyTheme(t) {
   document.documentElement.dataset.theme = t;
@@ -74,17 +72,15 @@ function applyTheme(t) {
   $("btn-theme").textContent = t === "light" ? "☀️" : "🌙";
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", t === "light" ? "#f4f4f7" : "#0f0f14");
-  swapTiles();
 }
 
 function swapTiles() {
-  if (!state.map) return;
-  const url = TILE_URLS[document.documentElement.dataset.theme === "light" ? "light" : "dark"];
-  if (state.tileLayer) state.tileLayer.remove();
-  state.tileLayer = L.tileLayer(url, {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap &copy; CARTO",
+  if (!state.map || state.tileLayer) return;
+  state.tileLayer = L.tileLayer(SATELLITE_URL, {
+    maxZoom: 18,
+    attribution: "&copy; Esri, Maxar, Earthstar Geographics",
   }).addTo(state.map);
+  state.labelsLayer = L.tileLayer(SATELLITE_LABELS_URL, { maxZoom: 18 }).addTo(state.map);
 }
 
 $("btn-theme").addEventListener("click", () => {
