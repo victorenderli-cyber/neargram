@@ -1357,44 +1357,37 @@ class Handler(BaseHTTPRequestHandler):
             )
         self._send(201, {"ok": True})
 
-    def serve_static(self, path):
-        if path == "/":
-            path = "/index.html"
-        full = os.path.normpath(os.path.join(STATIC_DIR, path.lstrip("/")))
-        if not full.startswith(os.path.normpath(STATIC_DIR)):
-            self._send(403, b"forbidden", "text/plain")
+    def api_users_suggested(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(200, {"users": []})
             return
-        if not os.path.isfile(full):
-            self._send(404, b"not found", "text/plain")
-            return
-        ext = os.path.splitext(full)[1].lower()
-        mime = {
-            ".html": "text/html; charset=utf-8",
-            ".css": "text/css; charset=utf-8",
-            ".js": "application/javascript; charset=utf-8",
-            ".json": "application/json; charset=utf-8",
-            ".webmanifest": "application/manifest+json; charset=utf-8",
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".gif": "image/gif",
-            ".svg": "image/svg+xml",
-            ".webp": "image/webp",
-        }.get(ext, "application/octet-stream")
-        with open(full, "rb") as f:
-            body = f.read()
-        body, encoding = self._gzip_if_possible(body, mime)
-        cache = "no-cache" if ext in (".html", ".json", ".webmanifest") else "public, max-age=86400"
-        self.send_response(200)
-        self.send_header("Content-Type", mime)
-        self.send_header("Content-Length", str(len(body)))
-        if encoding:
-            self.send_header("Content-Encoding", encoding)
-        self.send_header("Vary", "Accept-Encoding")
-        self.send_header("Cache-Control", cache)
-        self._security_headers()
-        self.end_headers()
-        self.wfile.write(body)
+        conn = db.connect()
+        try:
+            followed_ids = db.execute(conn, "SELECT followee_id FROM follows WHERE follower_id = ?", (user["id"],)).fetchall()
+            followed = {row["followee_id"] for row in followed_ids}
+            suggested = []
+            rows = db.execute(conn, """
+                SELECT u.id, u.username, u.avatar, u.bio, COUNT(s.id) as spot_count
+                FROM users u
+                LEFT JOIN spots s ON s.user_id = u.id
+                WHERE u.id != ? AND u.id NOT IN ({})
+                GROUP BY u.id, u.username, u.avatar, u.bio
+                ORDER BY spot_count DESC, u.username
+                LIMIT 20
+            """.format(",".join("?" for _ in followed)), (user["id"], *followed)).fetchall()
+            for r in rows:
+                suggested.append({
+                    "id": r["id"],
+                    "username": r["username"],
+                    "avatar": r["avatar"],
+                    "bio": r["bio"],
+                    "spot_count": r["spot_count"],
+                    "is_following": r["id"] in followed,
+                })
+            self._send(200, {"users": suggested})
+        finally:
+            conn.close()
 
 
 def main():
