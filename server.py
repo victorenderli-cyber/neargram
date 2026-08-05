@@ -25,6 +25,7 @@ MAX_IMAGE_BYTES = 6 * 1024 * 1024
 SESSION_MAX_DAYS = 30
 RATE_LIMIT_MAX = 10
 RATE_LIMIT_WINDOW = 60
+TELEMETRY_RATE_MAX = 60
 DEFAULT_SPOT_LIMIT = 100
 MAX_SPOT_LIMIT = 500
 
@@ -81,7 +82,7 @@ _rate_limit_lock = threading.Lock()
 _rate_limit_buckets = {}
 
 
-def _rate_limited(key):
+def _rate_limited(key, max_count=RATE_LIMIT_MAX):
     now = time.monotonic()
     with _rate_limit_lock:
         bucket = _rate_limit_buckets.get(key)
@@ -90,7 +91,7 @@ def _rate_limited(key):
             _rate_limit_buckets[key] = bucket
         while bucket and now - bucket[0] > RATE_LIMIT_WINDOW:
             bucket.popleft()
-        if len(bucket) >= RATE_LIMIT_MAX:
+        if len(bucket) >= max_count:
             return True
         bucket.append(now)
         return False
@@ -518,6 +519,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_push_subscribe()
             elif method == "DELETE" and path == "/api/push/subscribe":
                 self.api_push_unsubscribe()
+            elif method == "GET" and path == "/api/telemetry/consent":
+                self.api_telemetry_consent_get()
+            elif method == "POST" and path == "/api/telemetry/consent":
+                self.api_telemetry_consent_set()
+            elif method == "POST" and path == "/api/telemetry":
+                self.api_telemetry()
             else:
                 self._send(404, {"error": "endpoint not found"})
         except ValueError as e:
@@ -533,7 +540,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"user": None})
             return
         self._send(200, {"user": {"id": user["id"], "username": user["username"],
-                                  "bio": user["bio"] or "", "avatar": user["avatar"] or ""}})
+                                  "bio": user["bio"] or "", "avatar": user["avatar"] or "",
+                                  "telemetryConsent": bool(user["telemetry_consent"])}})
 
     def api_update_profile(self):
         user = get_user_by_token(self._get_token())
@@ -1053,6 +1061,80 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
         self.pending_cookie = "token=; Max-Age=0; Path=/"
         self._send(200, {})
+
+    def api_telemetry_consent_get(self):
+        user = get_user_by_token(self._get_token())
+        enabled = bool(user["telemetry_consent"]) if user else False
+        self._send(200, {"enabled": enabled})
+
+    def api_telemetry_consent_set(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        data = self._read_json()
+        enabled = bool(data.get("enabled"))
+        conn = db.connect()
+        db.execute(
+            conn,
+            "UPDATE users SET telemetry_consent = ? WHERE id = ?",
+            (1 if enabled else 0, user["id"]),
+        )
+        conn.commit()
+        conn.close()
+        self._send(200, {"enabled": enabled})
+
+    def api_telemetry(self):
+        user = get_user_by_token(self._get_token())
+        header_consent = self.headers.get("X-Consent", "") == "1"
+        query_consent = parse_qs(urlparse(self.path).query).get("c", [""])[0] == "1"
+        consented = header_consent or query_consent or bool(user and user["telemetry_consent"])
+        if not consented:
+            self._send(200, {"stored": 0})
+            return
+        if _rate_limited(f"tel:{self._client_ip()}", TELEMETRY_RATE_MAX):
+            self._send(429, {"error": "muitas tentativas, aguarde um pouco"})
+            return
+        data = self._read_json()
+        events = data.get("events")
+        if not isinstance(events, list) or not events:
+            raise ValueError("events inválido")
+        events = events[:50]
+        ip_hash = hashlib.sha256(self._client_ip().encode()).hexdigest()[:16]
+        ua = self.headers.get("User-Agent", "")[:300]
+        user_id = user["id"] if user else None
+        conn = db.connect()
+        stored = 0
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            name = str(ev.get("event") or "")[:64]
+            if not re.fullmatch(r"[a-z0-9_]{1,64}", name):
+                continue
+            props = ev.get("props") if isinstance(ev.get("props"), dict) else {}
+            props = json.dumps(props, ensure_ascii=False)[:2000]
+            lat = lng = None
+            try:
+                if ev.get("lat") is not None:
+                    lat = float(ev["lat"])
+                if ev.get("lng") is not None:
+                    lng = float(ev["lng"])
+            except (TypeError, ValueError):
+                lat = lng = None
+            if lat is not None and not (-90 <= lat <= 90):
+                lat = None
+            if lng is not None and not (-180 <= lng <= 180):
+                lng = None
+            db.execute(
+                conn,
+                "INSERT INTO telemetry (user_id, consent, event, props, ip_hash, ua, lat, lng) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, 1, name, props, ip_hash, ua, lat, lng),
+            )
+            stored += 1
+        conn.commit()
+        conn.close()
+        self._send(200, {"stored": stored})
 
     def api_spots(self, query):
         viewer = get_user_by_token(self._get_token())

@@ -97,6 +97,7 @@ def schema():
                 password_hash TEXT NOT NULL,
                 bio TEXT NOT NULL DEFAULT '',
                 avatar TEXT NOT NULL DEFAULT '',
+                telemetry_consent INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT DEFAULT {now})""",
             f"""CREATE TABLE IF NOT EXISTS sessions (
                 token TEXT PRIMARY KEY,
@@ -144,6 +145,17 @@ def schema():
                 spot_id INTEGER NOT NULL REFERENCES spots(id) ON DELETE CASCADE,
                 reason TEXT NOT NULL,
                 created_at TEXT DEFAULT {now})""",
+            f"""CREATE TABLE IF NOT EXISTS telemetry (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                consent INTEGER NOT NULL DEFAULT 0,
+                ts TEXT DEFAULT {now},
+                event VARCHAR(64) NOT NULL,
+                props TEXT DEFAULT '{{}}',
+                ip_hash VARCHAR(64) DEFAULT '',
+                ua VARCHAR(300) DEFAULT '',
+                lat DOUBLE PRECISION,
+                lng DOUBLE PRECISION)""",
             f"""CREATE TABLE IF NOT EXISTS push_subs (
                 id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -159,6 +171,7 @@ def schema():
             password_hash TEXT NOT NULL,
             bio TEXT NOT NULL DEFAULT '',
             avatar TEXT NOT NULL DEFAULT '',
+            telemetry_consent INTEGER NOT NULL DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now')))""",
         """CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
@@ -213,6 +226,17 @@ def schema():
             p256dh TEXT NOT NULL,
             auth TEXT NOT NULL,
             created_at TEXT DEFAULT (datetime('now')))""",
+        """CREATE TABLE IF NOT EXISTS telemetry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            consent INTEGER NOT NULL DEFAULT 0,
+            ts TEXT DEFAULT (datetime('now')),
+            event TEXT NOT NULL,
+            props TEXT DEFAULT '{}',
+            ip_hash TEXT DEFAULT '',
+            ua TEXT DEFAULT '',
+            lat REAL,
+            lng REAL)""",
     ]
 
 
@@ -245,6 +269,8 @@ def migrate():
         execute(conn, "ALTER TABLE users ADD COLUMN bio TEXT NOT NULL DEFAULT ''")
     if "avatar" not in cols:
         execute(conn, "ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
+    if "telemetry_consent" not in cols:
+        execute(conn, "ALTER TABLE users ADD COLUMN telemetry_consent INTEGER NOT NULL DEFAULT 0")
     for stmt in indices():
         try:
             execute(conn, stmt)

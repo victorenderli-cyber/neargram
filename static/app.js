@@ -20,6 +20,102 @@ let state = {
 const API = "/api";
 const SPOT_PAGE = 20;
 
+/* ---------------- Telemetria (consentida) ----------------
+   Só coleta dados de quem aceitou o aviso de privacidade.
+   A localização enviada é arredondada (precisão de ~1 km). */
+const Telemetry = (() => {
+  const LS = "ng-consent";
+  let enabled = localStorage.getItem(LS) === "1";
+  let queue = [];
+  let timer = null;
+  let errorCount = 0;
+
+  function track(event, props = {}) {
+    if (!enabled) return;
+    queue.push({
+      event,
+      props,
+      lat: state.currentPos ? +state.currentPos.lat.toFixed(2) : null,
+      lng: state.currentPos ? +state.currentPos.lng.toFixed(2) : null,
+    });
+    if (queue.length >= 10) { flush(); return; }
+    if (!timer) timer = setTimeout(flush, 8000);
+  }
+
+  async function flush() {
+    timer = null;
+    if (!enabled || !queue.length) return;
+    const batch = queue;
+    queue = [];
+    try {
+      await fetch(API + "/telemetry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Consent": "1" },
+        credentials: "same-origin",
+        body: JSON.stringify({ events: batch }),
+      });
+    } catch (e) { /* melhor esforço */ }
+  }
+
+  function setEnabled(v) {
+    enabled = !!v;
+    localStorage.setItem(LS, enabled ? "1" : "0");
+  }
+
+  function trackError(msg) {
+    if (errorCount >= 5) return;
+    errorCount++;
+    track("error", { msg: String(msg).slice(0, 120) });
+  }
+
+  window.addEventListener("pagehide", () => {
+    if (!enabled || !queue.length) return;
+    const batch = queue;
+    queue = [];
+    try {
+      fetch(API + "/telemetry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Consent": "1" },
+        credentials: "same-origin",
+        body: JSON.stringify({ events: batch }),
+        keepalive: true,
+      });
+    } catch (e) { /* melhor esforço */ }
+  });
+
+  return { track, flush, setEnabled, trackError, isEnabled: () => enabled };
+})();
+window.addEventListener("error", (e) => Telemetry.trackError(e.message));
+
+/* ---------------- Privacidade & consentimento ---------------- */
+function setConsent(v) {
+  Telemetry.setEnabled(v);
+  localStorage.setItem("ng-consent", v ? "1" : "0");
+  const banner = $("consent-banner");
+  if (banner) banner.classList.add("hidden");
+  const sw = $("tg-telemetry");
+  if (sw) sw.checked = v;
+  if (state.user) {
+    api("/telemetry/consent", { method: "POST", body: { enabled: v } }).catch(() => {});
+  }
+  if (v) Telemetry.track("consent_granted");
+}
+$("btn-consent-accept")?.addEventListener("click", () => setConsent(true));
+$("btn-consent-refuse")?.addEventListener("click", () => setConsent(false));
+$("btn-privacy-open")?.addEventListener("click", () => showModal("modal-privacy"));
+$("btn-privacy-auth")?.addEventListener("click", () => showModal("modal-privacy"));
+$("btn-privacy-profile")?.addEventListener("click", () => showModal("modal-privacy"));
+$("tg-telemetry")?.addEventListener("change", (e) => setConsent(e.target.checked));
+
+(function initConsent() {
+  if (localStorage.getItem("ng-consent") !== null) {
+    const banner = $("consent-banner");
+    if (banner) banner.classList.add("hidden");
+  }
+  const sw = $("tg-telemetry");
+  if (sw) sw.checked = Telemetry.isEnabled();
+})();
+
 /* ---------------- Toasts ---------------- */
 function toast(msg, type = "") {
   const host = $("toasts");
@@ -50,9 +146,11 @@ function toastAction(msg, label, fn) {
 /* ---------------- Conexão ---------------- */
 window.addEventListener("offline", () => {
   toast("Sem conexão — seus dados locais continuam salvos", "err");
+  Telemetry.track("connectivity", { state: "offline" });
 });
 window.addEventListener("online", () => {
   toast("Conectado de novo! Atualizando…", "ok");
+  Telemetry.track("connectivity", { state: "online" });
   if (state.user) { refreshSpots(); loadNotifications(); }
 });
 
@@ -66,9 +164,10 @@ window.addEventListener("beforeinstallprompt", (e) => {
 $("btn-install").addEventListener("click", async () => {
   if (!deferredInstall) return;
   deferredInstall.prompt();
-  await deferredInstall.userChoice;
+  const choice = await deferredInstall.userChoice;
   deferredInstall = null;
   $("btn-install").classList.add("hidden");
+  if (choice && choice.outcome === "accepted") Telemetry.track("install_pwa");
 });
 
 /* ---------------- Tema claro/escuro ---------------- */
@@ -105,7 +204,9 @@ function initTiles() {
 
 $("btn-theme").addEventListener("click", () => {
   const cur = document.documentElement.dataset.theme === "light" ? "light" : "dark";
-  applyTheme(cur === "light" ? "dark" : "light");
+  const next = cur === "light" ? "dark" : "light";
+  applyTheme(next);
+  Telemetry.track("theme", { theme: next });
 });
 const _savedTheme = localStorage.getItem("ng-theme");
 const _systemLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
@@ -395,6 +496,7 @@ $("btn-confirm-change-pass").addEventListener("click", async () => {
 /* ---------------- Boot ---------------- */
 async function boot() {
   const me = await api("/me");
+  Telemetry.track("app_open", { ms: Math.round(performance.now()), user: !!me.user });
   if (!me.user) return showAuth();
   state.user = me.user;
   showApp();
@@ -430,6 +532,7 @@ function initMap() {
   }
   state.map = L.map("map").setView([-22.9068, -43.1729], 4);
   state.map.attributionControl.setPrefix(false);
+  state.map.on("baselayerchange", (e) => Telemetry.track("map_layer", { layer: e.name }));
   initTiles();
   $("map-loading").classList.add("hidden");
 }
@@ -739,6 +842,7 @@ function refreshRadius(radius) {
 /* ---------------- Spot detail modal ---------------- */
 async function openSpotDetail(id) {
   state.selectedSpotId = id;
+  Telemetry.track("open_spot", { spot: id });
   try {
     const q = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}`;
     const data = await api("/spots" + q);
@@ -855,6 +959,7 @@ $("btn-like").addEventListener("click", async () => {
   $("like-label").textContent = res.liked ? "Curtido" : "Curtir";
   $("like-count").textContent = res.like_count;
   $("btn-like").classList.toggle("liked", res.liked);
+  Telemetry.track("like", { liked: !!res.liked, spot: id });
   loadNotifications();
 });
 
@@ -865,6 +970,7 @@ $("comment-form").addEventListener("submit", async (e) => {
   if (!text) return;
   await api(`/spots/${state.selectedSpotId}/comments`, { method: "POST", body: { text } });
   $("comment-input").value = "";
+  Telemetry.track("comment", { spot: state.selectedSpotId });
   loadNotifications();
   openSpotDetail(state.selectedSpotId);
 });
@@ -973,6 +1079,7 @@ $("btn-new").addEventListener("click", () => {
 });
 
 function openNewModal() {
+  Telemetry.track("open_new");
   if (state.currentPos) { $("btn-new").click(); return; }
   const iv = setInterval(() => { if (state.currentPos) { clearInterval(iv); $("btn-new").click(); } }, 500);
   setTimeout(() => clearInterval(iv), 20000);
@@ -1021,6 +1128,7 @@ $("btn-publish").addEventListener("click", async () => {
     await api("/spots", { method: "POST", body });
     hideModal("modal-new");
     toast("Lugar publicado! 📍", "ok");
+    Telemetry.track("publish_spot", { radius_m: body.radius_m });
     refreshSpots();
   } catch (err) {
     showError("publish-error", err.message);
@@ -1043,6 +1151,7 @@ async function runSearch() {
   const res = $("search-results");
   if (!q) return;
   res.innerHTML = `<div class="hint">Buscando…</div>`;
+  Telemetry.track("search", { q_len: q.length });
   try {
     let qs = `?q=${encodeURIComponent(q)}`;
     if (state.currentPos) qs += `&lat=${state.currentPos.lat}&lng=${state.currentPos.lng}`;
@@ -1167,6 +1276,7 @@ $("btn-follow").addEventListener("click", async () => {
     u.stats.followers = res.followers;
     $("btn-follow").textContent = res.following ? "✓ Seguindo" : "Seguir";
     toast(res.following ? `Agora você segue @${u.username}` : `Você deixou de seguir @${u.username}`);
+    Telemetry.track("follow", { following: !!res.following });
     const statEls = $("user-stats").querySelectorAll(".stat");
     if (statEls[0]) statEls[0].querySelector("b").textContent = res.followers;
     loadNotifications();

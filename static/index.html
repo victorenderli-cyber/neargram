@@ -27,6 +27,14 @@
 <div id="fatal" class="hidden"></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="lightbox" class="lightbox hidden" role="dialog" aria-modal="true" aria-label="Foto ampliada"><img id="lightbox-img" alt="Foto ampliada" /></div>
+<div id="consent-banner" role="region" aria-label="Aviso de privacidade">
+  <p>🔒 Respeitamos sua privacidade. Com a sua permissão, coletamos <b>eventos de uso</b>, <b>erros</b>, <b>dados do dispositivo</b> e <b>localização aproximada</b> (precisão de ~1 km) para melhorar o NearGram. Nada é enviado sem o seu aceite, e você pode desativar quando quiser.</p>
+  <div class="consent-actions">
+    <button id="btn-privacy-open" class="btn-secondary">Política de privacidade</button>
+    <button id="btn-consent-accept" class="btn-primary">Aceitar e continuar</button>
+    <button id="btn-consent-refuse" class="btn-secondary">Recusar</button>
+  </div>
+</div>
 
 <div id="auth-view" class="hidden">
   <div class="auth-card">
@@ -42,6 +50,7 @@
       <button id="auth-submit" type="submit" class="btn-primary">Entrar</button>
     </form>
     <div id="auth-error" class="error hidden"></div>
+    <p class="privacy-link"><button id="btn-privacy-auth" class="link">Política de privacidade</button></p>
   </div>
 </div>
 
@@ -203,6 +212,16 @@
         <div id="change-pass-error" class="error hidden"></div>
       </div>
     </div>
+    <div class="privacy-box">
+      <div class="privacy-row">
+        <span>📊 Telemetria de uso (dados pessoais e localização aproximada)</span>
+        <label class="switch" title="Permitir coleta de dados para desenvolvimento">
+          <input type="checkbox" id="tg-telemetry" />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <p class="hint">Ajuda a melhorar o NearGram com dados reais de uso. Você pode desativar a qualquer momento. <button id="btn-privacy-profile" class="link">Política de privacidade</button></p>
+    </div>
     <div class="danger-zone">
       <button id="btn-show-delete-account" class="btn-danger">🗑️ Excluir minha conta</button>
       <div id="delete-account-box" class="hidden">
@@ -253,6 +272,26 @@
     <div class="modal-head"><h3>Notificações</h3><button class="btn-close" data-close>×</button></div>
     <div id="notif-list"></div>
     <p id="notif-empty" class="hint hidden">Sem notificações ainda.</p>
+  </div>
+</div>
+
+<div id="modal-privacy" class="modal hidden" role="dialog" aria-modal="true" aria-label="Política de privacidade">
+  <div class="modal-box">
+    <div class="modal-head"><h3>🔒 Política de privacidade</h3><button class="btn-close" data-close>×</button></div>
+    <div class="privacy-text">
+      <h4>O que coletamos (somente com seu consentimento)</h4>
+      <ul>
+        <li><b>Eventos de uso:</b> quando você abre o app, publica uma foto, curte, comenta, segue, busca ou muda o tema — sem o conteúdo dos textos.</li>
+        <li><b>Dados do dispositivo:</b> tipo de navegador, tamanho de tela e idioma, para detectar problemas de compatibilidade.</li>
+        <li><b>Localização aproximada:</b> apenas quando você aceita, arredondada para ~1 km, para entender onde o app é usado.</li>
+        <li><b>Erros de JavaScript:</b> mensagens de erro para corrigir falhas.</li>
+      </ul>
+      <h4>Para que usamos</h4>
+      <p>Melhorar o NearGram: corrigir erros, priorizar funcionalidades e entender o uso em cada região. Nenhum dado é vendido ou compartilhado com terceiros.</p>
+      <h4>Seus direitos (LGPD)</h4>
+      <p>Você pode desativar a coleta a qualquer momento no <b>Perfil → Telemetria</b>. Ao excluir sua conta, todos os dados associados (incluindo telemetria) são apagados.</p>
+      <p class="hint">Contato: admin@neargram.app</p>
+    </div>
   </div>
 </div>
 

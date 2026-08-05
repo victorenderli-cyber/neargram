@@ -201,7 +201,7 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 - Código publicado idêntico ao local.
 - **Domínio próprio ativo:** <https://neargram.duckdns.org> (site, PWA, API e SSL verificados — `200`).
 - Última correção em produção: **endurecimento da tela preta** — limpeza de cache do service worker (`v2`), erro de boot visível (overlay `#fatal`) e fallback se `app.js` não carregar.
-- **Melhorias a publicar (SW v11, 31 testes):** mapa com toggle Satélite/Mapa (Esri + rótulos + OSM), barra de escala, popup de prévia nos marcadores (thumbnail, status, distância, botão "Ver detalhes"), marcador "você" com pulso, marcadores desbloqueados com hover, controles do Leaflet no tema escuro, CSP com OSM de volta.
+- **Melhorias a publicar (SW v12, 31 testes):** telemetria transparente e consentida (eventos de uso, dados do dispositivo e localização aproximada de desenvolvimento), aviso/bandeira de consentimento no auth-perfil, toggle para controlar, backend `/api/telemetry/consent` e `/api/telemetry` com rate limit por IP, métricas de uso rastreadas no app.js (like, comment, publish, follow, search, theme, install, map_layer, consent_granted, etc.).
 
 ---
 
@@ -227,7 +227,7 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `c08726c` | **Mapa em modo satélite:** Esri World Imagery + camada de rótulos (CSP/preconnect/SW atualizados, OSM removido). SW v10 |
 | `0f67b0e` | **Melhorias:** validação de username (regex `[A-Za-z0-9_]{4,24}`, unicidade case-insensitive), senha mínima 6 (registro e troca), avisos offline/online, `minlength`/`pattern` no registro, CSP sem OSM. 28 testes |
 | `58ada48` | **Melhorias:** editar comentário (PATCH `/api/comments/{id}`), listas de seguidores/seguindo no perfil (avatares clicáveis), `mine` nos comentários (API), rate limit na busca, Cache-Control por tipo (HTML/JSON `no-cache`, estáticos 1 dia). 31 testes |
-| *(atual)* | **Mapa:** toggle Satélite/Mapa (Esri World Imagery + rótulos + OSM), barra de escala, popup de prévia nos marcadores (thumbnail, status ✓/🔒, distância, botão "Ver detalhes"), marcador "você" com pulso, hover nos marcadores, controles Leaflet no tema escuro, CSP com OSM. SW v11. 31 testes |
+| *(atual)* | **Telemetria com consentimento (SW v12, 31 testes):** eventos de uso instrumentados (like, comment, publish, follow, search, theme, install, map_layer, consent_granted), aviso/bandeira de consentimento no auth-perfil, toggle no perfil para controlar, backend `/api/telemetry/consent` e `/api/telemetry` com rate limit, GPS aproximado (~1 km) para desenvolvimento.
 
 ---
 
