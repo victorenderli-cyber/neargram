@@ -43,7 +43,7 @@ SECURITY_HEADERS = {
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.cloudinary.com; "
+        "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.cloudinary.com https://*.basemaps.cartocdn.com; "
         "connect-src 'self'; "
         "font-src 'self' data:; "
         "object-src 'none'; "
@@ -623,6 +623,9 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             self._send(401, {"error": "faça login primeiro"})
             return
+        if _rate_limited(f"fol:{self._client_ip()}"):
+            self._send(429, {"error": "muitas ações, aguarde um pouco"})
+            return
         try:
             target = int(urlparse(self.path).path.strip("/").split("/")[-2])
         except ValueError:
@@ -1052,6 +1055,9 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             self._send(401, {"error": "faça login primeiro"})
             return
+        if _rate_limited(f"spot:{self._client_ip()}"):
+            self._send(429, {"error": "muitas publicações, aguarde um pouco"})
+            return
         data = self._read_json()
         name = (data.get("name") or "").strip()
         description = (data.get("description") or "").strip()
@@ -1145,6 +1151,9 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             self._send(401, {"error": "faça login primeiro"})
             return
+        if _rate_limited(f"like:{self._client_ip()}"):
+            self._send(429, {"error": "muitas ações, aguarde um pouco"})
+            return
         spot_id = self._spot_id_from_path()
         conn = db.connect()
         spot = db.execute(conn, "SELECT id, user_id FROM spots WHERE id = ?", (spot_id,)).fetchone()
@@ -1177,6 +1186,9 @@ class Handler(BaseHTTPRequestHandler):
         user = get_user_by_token(self._get_token())
         if not user:
             self._send(401, {"error": "faça login primeiro"})
+            return
+        if _rate_limited(f"com:{self._client_ip()}"):
+            self._send(429, {"error": "muitos comentários, aguarde um pouco"})
             return
         spot_id = self._spot_id_from_path()
         data = self._read_json()

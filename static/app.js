@@ -5,6 +5,7 @@ let state = {
   map: null,
   youMarker: null,
   radiusCircle: null,
+  tileLayer: null,
   clusterGroup: null,
   spots: [],
   radius: 500,
@@ -62,18 +63,37 @@ $("btn-install").addEventListener("click", async () => {
 });
 
 /* ---------------- Tema claro/escuro ---------------- */
+const TILE_URLS = {
+  dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+  light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+};
+
 function applyTheme(t) {
   document.documentElement.dataset.theme = t;
   localStorage.setItem("ng-theme", t);
   $("btn-theme").textContent = t === "light" ? "☀️" : "🌙";
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", t === "light" ? "#f4f4f7" : "#0f0f14");
+  swapTiles();
 }
+
+function swapTiles() {
+  if (!state.map) return;
+  const url = TILE_URLS[document.documentElement.dataset.theme === "light" ? "light" : "dark"];
+  if (state.tileLayer) state.tileLayer.remove();
+  state.tileLayer = L.tileLayer(url, {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap &copy; CARTO",
+  }).addTo(state.map);
+}
+
 $("btn-theme").addEventListener("click", () => {
   const cur = document.documentElement.dataset.theme === "light" ? "light" : "dark";
   applyTheme(cur === "light" ? "dark" : "light");
 });
-applyTheme(localStorage.getItem("ng-theme") || "dark");
+const _savedTheme = localStorage.getItem("ng-theme");
+const _systemLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+applyTheme(_savedTheme || (_systemLight ? "light" : "dark"));
 
 function setAvatar(id, dataUrl) {
   const el = $(id);
@@ -203,7 +223,7 @@ function renderProfileGrid(gridId, emptyId, spots, mine) {
     const item = document.createElement("div");
     item.className = "pg-item";
     item.innerHTML = `
-      ${s.photo ? `<img src="${s.photo}" />` : `<div class="pg-lock">🔒</div>`}
+      ${s.photo ? `<img src="${s.photo}" loading="lazy" decoding="async" alt="" />` : `<div class="pg-lock">🔒</div>`}
       ${mine ? `<button class="pg-del" title="Excluir">✕</button>` : ""}`;
     if (mine) {
       item.querySelector(".pg-del").addEventListener("click", (e) => {
@@ -216,7 +236,7 @@ function renderProfileGrid(gridId, emptyId, spots, mine) {
   });
 }
 
-$("btn-profile").addEventListener("click", async () => {
+async function openOwnProfile() {
   try {
     const p = await api("/profile");
     $("profile-title").textContent = "@" + p.user.username;
@@ -234,9 +254,10 @@ $("btn-profile").addEventListener("click", async () => {
     hideError("profile-error");
     showModal("modal-profile");
   } catch (e) {
-    alert(e.message);
+    toast(e.message, "err");
   }
-});
+}
+$("btn-profile").addEventListener("click", openOwnProfile);
 
 $("btn-edit-profile").addEventListener("click", () => {
   $("profile-edit").classList.remove("hidden");
@@ -383,10 +404,7 @@ function initMap() {
   }
   state.map = L.map("map").setView([-22.9068, -43.1729], 4);
   state.map.attributionControl.setPrefix(false);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap",
-  }).addTo(state.map);
+  swapTiles();
   $("map-loading").classList.add("hidden");
 }
 
@@ -592,7 +610,7 @@ function renderFeed() {
     card.className = "feed-card";
     const unlocked = s.unlocked === true;
     const imgHtml = unlocked
-      ? `<img class="fc-img" src="${s.photo}" />`
+      ? `<img class="fc-img" src="${s.photo}" loading="lazy" decoding="async" alt="${esc(s.name)}" />`
       : `<div class="fc-img locked">🔒</div>`;
     const dist =
       s.distance_m == null
@@ -608,12 +626,28 @@ function renderFeed() {
         ${imgHtml}
         <div style="flex:1">
           <div class="fc-name">${esc(s.name)}</div>
-          <div class="fc-meta"><button class="link-author" data-user="${esc(s.author)}">${authorAvatar}@${esc(s.author)}</button> · ♥ ${s.like_count} · ${s.comments.length} comentários</div>
+          <div class="fc-meta"><button class="link-author" data-user="${esc(s.author)}">${authorAvatar}@${esc(s.author)}</button> · ${s.comments.length} comentários</div>
           ${dist}
         </div>
+        <button class="fc-like${s.liked ? " liked" : ""}" data-id="${s.id}" title="Curtir">♥ <span>${s.like_count}</span></button>
       </div>`;
     const au = card.querySelector(".link-author");
     if (au) au.addEventListener("click", (e) => { e.stopPropagation(); openUserProfile(au.dataset.user); });
+    const likeBtn = card.querySelector(".fc-like");
+    likeBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!state.user) { toast("faça login para curtir", "err"); return; }
+      try {
+        const res = await api(`/spots/${s.id}/like`, { method: "POST", body: {} });
+        s.liked = res.liked;
+        s.like_count = res.like_count;
+        likeBtn.classList.toggle("liked", res.liked);
+        likeBtn.querySelector("span").textContent = res.like_count;
+        loadNotifications();
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    });
     card.addEventListener("click", () => openSpotDetail(s.id));
     feed.appendChild(card);
   });
@@ -667,9 +701,11 @@ async function showSpotModal(spot) {
   const photoEl = $("spot-photo");
   const lockEl = $("spot-lock");
   if (unlocked) {
-    photoEl.innerHTML = `<img src="${spot.photo}" />`;
+    photoEl.innerHTML = `<img src="${spot.photo}" loading="lazy" decoding="async" alt="${esc(spot.name)}" />`;
     photoEl.classList.remove("hidden");
     lockEl.classList.add("hidden");
+    const pimg = photoEl.querySelector("img");
+    if (pimg) pimg.addEventListener("click", (e) => { e.stopPropagation(); openLightbox(pimg.src); });
   } else {
     photoEl.classList.add("hidden");
     lockEl.classList.remove("hidden");
@@ -697,6 +733,15 @@ async function showSpotModal(spot) {
   editBtn.classList.toggle("hidden", !spot.mine);
   $("spot-edit").classList.add("hidden");
   hideError("edit-error");
+
+  const gotoBtn = $("btn-goto-map");
+  gotoBtn.onclick = () => {
+    hideModal("modal-spot");
+    if (state.map) {
+      state.map.setView([spot.lat, spot.lng], 16);
+      refreshSpots();
+    }
+  };
 
   const cl = $("comments-list");
   cl.innerHTML = spot.comments.length
@@ -942,7 +987,7 @@ async function runSearch() {
       const row = document.createElement("div");
       row.className = "search-row-item";
       row.innerHTML = `
-        ${s.photo ? `<img class="search-thumb" src="${s.photo}" alt=""/>` : `<span class="search-thumb lock">🔒</span>`}
+        ${s.photo ? `<img class="search-thumb" src="${s.photo}" loading="lazy" decoding="async" alt=""/>` : `<span class="search-thumb lock">🔒</span>`}
         <span class="search-row-name">${esc(s.name)}</span>
         <small>@${esc(s.author)}</small>`;
       row.addEventListener("click", () => { hideModal("modal-search"); openSpotDetail(s.id); });
@@ -1004,11 +1049,12 @@ async function openUserProfile(username) {
     let qs = "";
     if (state.currentPos) qs = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}`;
     const d = await api(`/users/${encodeURIComponent(username)}` + qs);
+    const isSelf = state.user && d.username === state.user.username;
     $("user-title").textContent = "@" + d.username;
     setAvatar("user-avatar", d.avatar);
     $("user-bio").textContent = d.bio || "Sem biografia.";
     const btn = $("btn-follow");
-    if (!state.user || d.username === state.user.username) {
+    if (!state.user || isSelf) {
       btn.classList.add("hidden");
     } else {
       btn.classList.remove("hidden");
@@ -1019,6 +1065,7 @@ async function openUserProfile(username) {
       <div class="stat"><b>${d.stats.spots}</b><span>fotos</span></div>
       <div class="stat"><b>${d.stats.followers}</b><span>seguidores</span></div>
       <div class="stat"><b>${d.stats.following}</b><span>seguindo</span></div>`;
+    $("user-self-actions").classList.toggle("hidden", !isSelf);
     renderProfileGrid("user-spots", "user-empty", d.spots, false);
     window._userProfile = d;
     showModal("modal-user");
@@ -1035,13 +1082,19 @@ $("btn-follow").addEventListener("click", async () => {
     u.is_following = res.following;
     u.stats.followers = res.followers;
     $("btn-follow").textContent = res.following ? "✓ Seguindo" : "Seguir";
+    toast(res.following ? `Agora você segue @${u.username}` : `Você deixou de seguir @${u.username}`);
     const statEls = $("user-stats").querySelectorAll(".stat");
     if (statEls[1]) statEls[1].querySelector("b").textContent = res.followers;
     loadNotifications();
     if (state.feedMode === "following") refreshSpots();
   } catch (e) {
-    alert(e.message);
+    toast(e.message, "err");
   }
+});
+
+$("btn-manage-profile").addEventListener("click", () => {
+  hideModal("modal-user");
+  openOwnProfile();
 });
 
 /* ---------------- Feed tabs ---------------- */
@@ -1084,6 +1137,16 @@ document.querySelectorAll(".modal").forEach((m) =>
     if (e.target === m) m.classList.add("hidden");
   })
 );
+
+/* ---------------- Lightbox ---------------- */
+function openLightbox(src) {
+  $("lightbox-img").src = src;
+  $("lightbox").classList.remove("hidden");
+}
+$("lightbox").addEventListener("click", () => $("lightbox").classList.add("hidden"));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") $("lightbox").classList.add("hidden");
+});
 
 function showError(id, msg) {
   const el = $(id);

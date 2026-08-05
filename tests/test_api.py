@@ -453,6 +453,19 @@ class ApiTestCase(unittest.TestCase):
         status, _, data = self.call("/api/login", "POST", {"username": "igor", "password": "senha123"})
         self.assertEqual(status, 400)
 
+    def test_25_publish_rate_limit(self):
+        a = self.register("julia")
+        blocked = False
+        for _ in range(12):
+            status, _, _ = self.call(
+                "/api/spots", "POST",
+                {"name": "Ratelim", "lat": -22.95, "lng": -43.21, "photo": PNG, "radius_m": 500},
+                a,
+            )
+            if status == 429:
+                blocked = True
+        self.assertTrue(blocked)
+
 
 if __name__ == "__main__":
     unittest.main()

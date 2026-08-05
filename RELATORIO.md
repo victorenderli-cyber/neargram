@@ -223,7 +223,7 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `31d621b` | **Novas funcionalidades:** seguidores/follow + feed "Seguindo", busca, notificações, bio+avatar, compartilhar link, denúncia, modo claro/escuro. Fix: botão curtir (span `like-count` era destruído). SW v4. 15 testes |
 | `89be1f3` | **Melhorias:** compressão de imagem no cliente, gzip, cabeçalhos de segurança (CSP), feed ordenado por proximidade, polling de notificações, Web Push opt-in (VAPID), storage Cloudinary opt-in, `tools/gen_vapid.py`. SW v5. 19 testes |
 | `5f51ed6` | **Melhorias:** paginação do feed (`limit`/`offset`/`has_more` + "Carregar mais"), clusters no mapa (markercluster local), busca ordenada por proximidade, editar spot (PATCH), excluir comentário (DELETE), excluir conta (DELETE `/api/me`), toasts, progresso de upload, botão instalar PWA, log estruturado JSON, pooling Postgres. SW v6. 23 testes |
-| *(atual)* | **Melhorias:** círculo do raio de desbloqueio no mapa, autoload do feed, busca com debounce, Web Share API, alterar senha (`POST /api/profile/password`), aviso de nova versão (SW v7), skeleton loading, tempo relativo, índices no banco, `theme-color` dinâmico. 24 testes |
+| *(atual)* | **Melhorias:** tema automático pelo sistema + tiles CartoDB por tema (claro/escuro), lightbox de fotos, curtida rápida no card do feed, botão "ver no mapa", `loading="lazy"` nas imagens, gerenciar perfil a partir do próprio perfil público, rate limit em curtir/comentar/follow/publicar. 25 testes |
 
 ---
 

@@ -22,6 +22,7 @@
 
 <div id="fatal" class="hidden"></div>
 <div id="toasts"></div>
+<div id="lightbox" class="lightbox hidden"><img id="lightbox-img" alt="Foto ampliada" /></div>
 
 <div id="auth-view" class="hidden">
   <div class="auth-card">
@@ -129,6 +130,7 @@
     <div class="spot-actions">
       <button id="btn-like" class="btn-like">♥ <span id="like-label">Curtir</span> <span id="like-count">0</span></button>
       <span id="spot-distance"></span>
+      <button id="btn-goto-map" title="Ver no mapa">🗺️</button>
       <button id="btn-share" title="Compartilhar link">🔗</button>
       <button id="btn-report" title="Denunciar conteúdo">🚩</button>
     </div>
@@ -220,6 +222,7 @@
       <div class="profile-head-info">
         <div id="user-bio" class="profile-bio"></div>
         <button id="btn-follow" class="btn-primary">Seguir</button>
+        <div id="user-self-actions" class="hidden"><button id="btn-manage-profile" class="btn-secondary">⚙️ Gerenciar meu perfil</button></div>
         <span id="user-follow-hint" class="hint"></span>
       </div>
     </div>
