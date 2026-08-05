@@ -1,16 +1,57 @@
 import os
 import sqlite3
+import threading
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data.db")
 
 PG = bool(os.environ.get("DATABASE_URL"))
 
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool():
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                import psycopg2.pool
+                _pool = psycopg2.pool.ThreadedConnectionPool(1, 20, os.environ["DATABASE_URL"])
+    return _pool
+
+
+class _PooledPG:
+    """Proxies a pooled Postgres connection; close() devolve ao pool após rollback."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        try:
+            import psycopg2.extensions
+            if not self._conn.closed and self._conn.get_transaction_status() != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+                self._conn.rollback()
+        except Exception:
+            pass
+        try:
+            _get_pool().putconn(self._conn)
+        except Exception:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
 
 def connect():
     if PG:
-        import psycopg2
-        conn = psycopg2.connect(os.environ["DATABASE_URL"])
+        conn = _PooledPG(_get_pool().getconn())
         with conn.cursor() as cur:
             cur.execute("SET search_path TO neargram, public")
         return conn

@@ -358,6 +358,90 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(raw[:4], b"\x89PNG")
 
+    def test_20_spots_pagination(self):
+        a = self.register("bernardo")
+        for i in range(3):
+            self.call(
+                "/api/spots", "POST",
+                {"name": f"Local {i}", "lat": -22.95, "lng": -43.21, "photo": PNG, "radius_m": 500},
+                a,
+            )
+        status, _, all_spots = self.call("/api/spots")
+        total = len(all_spots["spots"])
+        self.assertGreaterEqual(total, 3)
+        status, _, page1 = self.call("/api/spots?limit=2")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(page1["spots"]), 2)
+        self.assertEqual(page1["has_more"], total > 2)
+        status, _, page2 = self.call("/api/spots?limit=2&offset=2")
+        self.assertEqual(len(page2["spots"]), max(0, min(2, total - 2)))
+        self.assertEqual(page2["has_more"], total > 4)
+        ids1 = {s["id"] for s in page1["spots"]}
+        ids2 = {s["id"] for s in page2["spots"]}
+        self.assertEqual(len(ids1 & ids2), 0)
+
+    def test_21_edit_spot(self):
+        a = self.register("cesar")
+        b = self.register("diana")
+        _, _, create = self.call(
+            "/api/spots", "POST",
+            {"name": "Antigo", "description": "antes", "lat": -22.95, "lng": -43.21, "photo": PNG, "radius_m": 500},
+            a,
+        )
+        spot_id = create["spot"]["id"]
+        status, _, data = self.call(
+            f"/api/spots/{spot_id}", "PATCH",
+            {"name": "Novo nome", "description": "depois", "radius_m": 800}, a,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["spot"]["name"], "Novo nome")
+        self.assertEqual(data["spot"]["description"], "depois")
+        self.assertEqual(data["spot"]["radius_m"], 800)
+        status, _, _ = self.call(
+            f"/api/spots/{spot_id}", "PATCH", {"name": ""}, a,
+        )
+        self.assertEqual(status, 400)
+        status, _, _ = self.call(
+            f"/api/spots/{spot_id}", "PATCH", {"name": "Invadido"}, b,
+        )
+        self.assertEqual(status, 403)
+
+    def test_22_delete_comment(self):
+        author = self.register("eduardo")
+        _, _, create = self.call(
+            "/api/spots", "POST",
+            {"name": "Lagoa", "lat": -22.95, "lng": -43.21, "photo": PNG, "radius_m": 500},
+            author,
+        )
+        spot_id = create["spot"]["id"]
+        fan = self.register("flavia")
+        _, _, data = self.call(f"/api/spots/{spot_id}/comments", "POST", {"text": "que lugar"}, fan)
+        comment_id = data.get("comment_id")
+        if comment_id is None:
+            status, _, feed = self.call(f"/api/spots?lat=-22.95&lng=-43.21")
+            spot = next(s for s in feed["spots"] if s["id"] == spot_id)
+            comment_id = spot["comments"][0]["id"]
+        intruder = self.register("gustavo")
+        status, _, _ = self.call(f"/api/comments/{comment_id}", "DELETE", cookie=intruder)
+        self.assertEqual(status, 403)
+        status, _, _ = self.call(f"/api/comments/{comment_id}", "DELETE", cookie=fan)
+        self.assertEqual(status, 200)
+        self.call(f"/api/spots/{spot_id}/comments", "POST", {"text": "outro"}, fan)
+        _, _, feed = self.call(f"/api/spots?lat=-22.95&lng=-43.21")
+        spot = next(s for s in feed["spots"] if s["id"] == spot_id)
+        comment2 = spot["comments"][0]["id"]
+        status, _, _ = self.call(f"/api/comments/{comment2}", "DELETE", cookie=author)
+        self.assertEqual(status, 200)
+
+    def test_23_delete_account(self):
+        a = self.register("helena")
+        status, _, data = self.call("/api/me", "DELETE", {"password": "errada"}, a)
+        self.assertEqual(status, 400)
+        status, _, data = self.call("/api/me", "DELETE", {"password": "senha123"}, a)
+        self.assertEqual(status, 200)
+        status, _, me = self.call("/api/me", cookie=a)
+        self.assertIsNone(me["user"])
+
 
 if __name__ == "__main__":
     unittest.main()

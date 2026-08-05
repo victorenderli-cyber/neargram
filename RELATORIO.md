@@ -33,14 +33,16 @@
 - Distância calculada em tempo real (fórmula de Haversine).
 
 ### Descoberta e interação
-- Mapa Leaflet + OpenStreetMap com marcadores (⬤ você, 🔒 bloqueado, foto desbloqueada).
-- Feed de lugares com foto, autor, curtidas, comentários e distância.
-- **Curtir** / descurtir e **comentar** fotos desbloqueadas.
+- Mapa Leaflet + OpenStreetMap com **clusters** (marcadores agrupados por proximidade) e marcadores (⬤ você, 🔒 bloqueado, foto desbloqueada).
+- Feed de lugares com foto, autor, curtidas, comentários e distância — **paginado** com botão "Carregar mais lugares" (`limit`+`offset`+`has_more`).
+- **Curtir** / descurtir e **comentar** fotos desbloqueadas (autor do comentário ou do spot podem **excluir comentários**).
+- Autor pode **editar** nome, descrição e raio de desbloqueio das próprias fotos, e **excluir a própria conta** (com confirmação de senha).
+- **Busca ordenada por proximidade** quando lat/lng informados.
 - Dois modos de posicionamento: **GPS real** e **simulação** (clique no mapa).
 
 ### PWA (instalável)
 - `manifest.json`, service worker com cache offline (só o shell; API/tiles não são cacheados).
-- Instalável como app no Android (Chrome) e iOS (Safari → Adicionar à Tela de Início).
+- **Botão "Instalar"** no app (`beforeinstallprompt`) para instalar como app no Android (Chrome) e iOS (Safari → Adicionar à Tela de Início).
 - **Web Push** (opt-in): notificações nativas de curtida/comentário/follow (VAPID; requer `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` no ambiente).
 
 ### Performance e robustez
@@ -48,7 +50,9 @@
 - **gzip** automático em JSON e estáticos (quando o cliente aceita `Accept-Encoding: gzip`).
 - **Cabeçalhos de segurança**: CSP, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`.
 - **Storage externo opt-in**: se `CLOUDINARY_CLOUD_NAME` + `CLOUDINARY_UPLOAD_PRESET` estiverem configurados, as fotos vão para o Cloudinary (URL salva; redirect 302 na entrega); senão, mantém base64 no banco.
-- **Feed ordenado por proximidade** (desbloqueadas primeiro, depois por distância) e **polling** de notificações (badge atualiza a cada 30 s).
+- **Feed ordenado por proximidade** (desbloqueadas primeiro, depois por distância), **paginação** com `has_more` e **polling** de notificações (badge atualiza a cada 30 s).
+- **Pooling de conexões Postgres** (psycopg2 `ThreadedConnectionPool`, 1–20 conexões) — sem abrir conexão nova a cada requisição.
+- **Logs estruturados em JSON** (acesso + erros com timestamp UTC) para facilitar depuração em produção.
 
 ---
 
@@ -103,6 +107,7 @@ static/
   manifest.json  # metadados PWA
   icons/         # ícones do app
   vendor/leaflet # Leaflet servido localmente (sem CDN)
+  vendor/leaflet.markercluster # markercluster servido localmente (sem CDN)
 tools/gen_vapid.py # gera chaves VAPID para Web Push
 RELATORIO.md     # este documento
 ```
@@ -142,13 +147,16 @@ Relacionamentos: `spots`, `sessions`, `likes`, `comments`, `follows`, `notificat
 | POST | `/api/notifications/read` | Marca todas como lidas | cookie |
 | GET | `/api/users/:username` | Perfil público (stats, follows, fotos) | — |
 | POST | `/api/users/:id/follow` | Seguir / deixar de seguir | cookie |
-| GET | `/api/spots?lat=&lng=&feed=following&limit=` | Lista lugares (feed normal ou "seguindo") | — |
+| GET | `/api/spots?lat=&lng=&feed=following&limit=&offset=` | Lista lugares paginado (`has_more`) | — |
 | POST | `/api/spots` | Publica foto (JSON, foto em base64) | cookie |
 | GET | `/api/spots/:id/photo?lat=&lng=` | Foto — só se estiver no raio | geo-fence |
+| PATCH | `/api/spots/:id` | Edita nome/descrição/raio (somente autor) | cookie |
 | POST | `/api/spots/:id/like` | Curtir/descurtir (gera notificação) | cookie |
 | POST | `/api/spots/:id/comments` | Comentar (gera notificação) | cookie |
 | POST | `/api/spots/:id/report` | Denunciar conteúdo (rate limit por IP) | cookie |
 | DELETE | `/api/spots/:id` | Excluir (somente autor) | cookie |
+| DELETE | `/api/comments/:id` | Excluir comentário (autor do comentário ou do spot) | cookie |
+| DELETE | `/api/me` | Excluir conta (confirma senha) | cookie |
 | GET | `/api/push/vapid-public-key` | Chave pública VAPID (para assinar push) | — |
 | POST | `/api/push/subscribe` | Registra assinatura de push do usuário | cookie |
 | DELETE | `/api/push/subscribe` | Remove assinatura de push | cookie |
@@ -188,7 +196,7 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 - Código publicado idêntico ao local.
 - **Domínio próprio ativo:** <https://neargram.duckdns.org> (site, PWA, API e SSL verificados — `200`).
 - Última correção em produção: **endurecimento da tela preta** — limpeza de cache do service worker (`v2`), erro de boot visível (overlay `#fatal`) e fallback se `app.js` não carregar.
-- **Melhorias aplicadas (a publicar):** compressão de imagem no cliente, gzip, CSP/security headers, feed por proximidade, polling de notificações, Web Push e Cloudinary opt-in (SW v5).
+- **Melhorias aplicadas (a publicar):** paginação do feed (`has_more`), clusters no mapa, busca ordenada por proximidade, editar spot, excluir comentário, excluir conta, toasts, progresso de upload, botão instalar PWA, log estruturado JSON e pooling Postgres (SW v6, 23 testes).
 
 ---
 
@@ -207,7 +215,8 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `bef3ac6` | Correções da avaliação: rate limit, expiração de sessão, 500 genérico, logs, fim do N+1, paginação, testes |
 | `7fa64c8` | Corrige bug crítico: prefixo `/api` duplicado em app.js (404 → tela preta). SW v3 |
 | `31d621b` | **Novas funcionalidades:** seguidores/follow + feed "Seguindo", busca, notificações, bio+avatar, compartilhar link, denúncia, modo claro/escuro. Fix: botão curtir (span `like-count` era destruído). SW v4. 15 testes |
-| *(atual)* | **Melhorias:** compressão de imagem no cliente, gzip, cabeçalhos de segurança (CSP), feed ordenado por proximidade, polling de notificações, Web Push opt-in (VAPID), storage Cloudinary opt-in, `tools/gen_vapid.py`. SW v5. 19 testes |
+| `89be1f3` | **Melhorias:** compressão de imagem no cliente, gzip, cabeçalhos de segurança (CSP), feed ordenado por proximidade, polling de notificações, Web Push opt-in (VAPID), storage Cloudinary opt-in, `tools/gen_vapid.py`. SW v5. 19 testes |
+| *(atual)* | **Melhorias:** paginação do feed (`limit`/`offset`/`has_more` + "Carregar mais"), clusters no mapa (markercluster local), busca ordenada por proximidade, editar spot (PATCH), excluir comentário (DELETE), excluir conta (DELETE `/api/me`), toasts, progresso de upload, botão instalar PWA, log estruturado JSON, pooling Postgres. SW v6. 23 testes |
 
 ---
 
@@ -222,14 +231,18 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 - Domínio próprio **`neargram.duckdns.org`** configurado e funcionando (A record + Custom Domain no Render).
 - Endurecimento da tela preta (erro de boot visível, cache SW v2, fallback `app.js`).
 - **Endurecimento do backend (avaliação):** rate limiting em login/registro (429), expiração de sessões (30 dias) + `Max-Age` no cookie, 500 sem vazar detalhes internos, logs de requisição habilitados, consultas em lote (fim do N+1), paginação (`limit`) em `/api/spots`.
-- **Testes automatizados:** `tests/test_api.py` (19 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit, bio/avatar, follow, notificações, feed "seguindo", denúncia, busca, **gzip/security headers, ordenação por proximidade, push subscribe**.
+- **Testes automatizados:** `tests/test_api.py` (23 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit, bio/avatar, follow, notificações, feed "seguindo", denúncia, busca, **gzip/security headers, ordenação por proximidade, push subscribe, paginação, editar spot, excluir comentário, excluir conta**.
 - **Redes sociais:** seguidores/follow, perfil público, feed "Seguindo", notificações de curtida/comentário/follow, busca de lugares e usuários.
 - **Perfil rico:** bio e foto de avatar (upload), stats de seguidores/seguindo.
+- **Gestão de conteúdo:** editar spot (nome/descrição/raio), excluir comentário (autor ou dono do spot), excluir conta com confirmação de senha.
 - **Compartilhamento e moderação:** link direto do lugar (`#spot=ID`) e denúncia de conteúdo impróprio.
-- **UX:** modo claro/escuro persistente, fix do botão curtir no modal do spot, feed ordenado por proximidade, loading do feed e polling de notificações.
-- **Performance:** compressão de imagem no cliente (canvas), gzip em respostas JSON/estáticas.
+- **UX:** modo claro/escuro persistente, fix do botão curtir no modal do spot, feed ordenado por proximidade, **paginação com "Carregar mais"**, **toasts**, **progresso ao publicar/salvar/excluir**, loading do feed e polling de notificações.
+- **Mapa:** **clusters** de marcadores (markercluster servido localmente, sem CDN).
+- **Performance:** compressão de imagem no cliente (canvas), gzip em respostas JSON/estáticas, **pooling de conexões Postgres**.
+- **Observabilidade:** **logs estruturados JSON** (acesso + erros com timestamp UTC).
 - **Segurança:** CSP + `nosniff`/`X-Frame-Options`/`Referrer-Policy`/`Permissions-Policy`.
 - **Push (código pronto, precisa das env VAPID):** assinatura no cliente, endpoints `/api/push/*`, envio de curtida/comentário/follow e handlers `push`/`notificationclick` no service worker.
+- **Instalação PWA:** botão "Instalar" (`beforeinstallprompt`).
 
 ---
 
@@ -263,29 +276,29 @@ O banco é criado automaticamente na primeira execução (`db.init()`).
 - **Deploy automatizado** (Render + auto-deploy no push) e domínio próprio funcionando.
 
 ### Pontos fracos / riscos
-1. **Performance (N+1)**: `public_spot()` abre uma conexão nova e faz 3+ consultas **por lugar** — com poucos spots funciona, mas não escala.
-2. **Fotos no banco como base64**: estoura o limite do Postgres free com uso real; ideal é servir por CDN/armazenamento de objetos e guardar só a URL.
-3. **Sem rate limiting**: `/api/login` e `/api/register` são alvo fácil de brute-force.
-4. **Sessões sem expiração**: a tabela `sessions` cresce indefinidamente e tokens nunca revogam (exceto logout).
-5. **Vazamento de erro**: `internal error: {e}` devolve detalhes internos ao cliente em produção.
-6. **Sem logs**: `log_message` está desativado — impossível depurar em produção.
-7. **Mapeamento/payload**: `_read_json` carrega o corpo inteiro em memória e `serve_static` lê arquivo inteiro por request.
+1. **Performance**: consultas já são em lote (fim do N+1) e conexões Postgres são **pooled**; ainda assim, muitos spots exigem índices espaciais no futuro.
+2. **Fotos no banco como base64**: estoura o limite do Postgres free com uso real; ideal é servir por CDN/armazenamento de objetos e guardar só a URL (Cloudinary já implementado, configurar env).
+3. **Rate limiting** em `/api/login` e `/api/register` já existe (429); ampliar para outros endpoints é um próximo passo.
+4. **Sessões**: expiram em 30 dias e são podadas; tokens não revogam individualmente (exceto logout).
+5. **Vazamento de erro**: erros internos não vazam para o cliente (500 genérico); detalhes vão para os **logs JSON**.
+6. **Logs**: estruturados em JSON no stderr (acesso + erros).
+7. **Mapeamento/payload**: `_read_json` carrega o corpo inteiro em memória e `serve_static` lê arquivo inteiro por request (limites já impostos no corpo).
 8. **Área do mapa escura**: se o OSM/tiles estiverem bloqueados pela rede, o mapa vira um bloco preto (pode parecer tela preta).
-9. **Sem paginação**: o feed busca e renderiza todos os spots de uma vez.
-10. **Sem testes automatizados**: não há testes unitários/e2e.
+9. **Paginação**: implementada com `limit`/`offset`/`has_more` no feed e botão "Carregar mais".
+10. **Testes automatizados**: 23 testes de API passando; testes e2e manuais via Edge headless (CDP) neste ciclo.
 
 ### Recomendações por prioridade
 | Prioridade | Ação | Status |
 |---|---|---|
 | Alta | Rate limiting em login/registro; expiração de sessão; parar de vazar erros internos | ✔ feito |
 | Alta | Migrar fotos para armazenamento de objetos (ex.: Cloudinary/S3) com URL no banco | ✔ feito (opt-in Cloudinary; configurar env p/ ativar) |
-| Média | Paginar `/api/spots` e otimizar as consultas (join em vez de N+1) | ✔ feito (limite no API; pooling ainda pendente) |
-| Média | Adicionar testes básicos (`unittest` em `tests/test_api.py`) | ✔ feito (19 testes) |
-| Média | Logging de requisições | ✔ feito (stderr; estruturado segue pendente) |
+| Média | Paginar `/api/spots` e otimizar as consultas (join em vez de N+1) | ✔ feito (paginação `limit`/`offset`/`has_more` + pooling Postgres) |
+| Média | Adicionar testes básicos (`unittest` em `tests/test_api.py`) | ✔ feito (23 testes) |
+| Média | Logging de requisições | ✔ feito (logs estruturados JSON) |
 | Baixa | Compressão da imagem no cliente antes do upload | ✔ feito (canvas → JPEG 1280px/512px) |
 | Baixa | gzip nas respostas | ✔ feito (JSON + estáticos) |
 | Baixa | Cabeçalhos de segurança (CSP, nosniff, X-Frame-Options) | ✔ feito |
 | Baixa | Notificações push | ✔ código pronto (VAPID via env) |
 
 ### Conclusão
-O NearGram entrega exatamente a proposta (ver só perto do lugar) com código pequeno, limpo e seguro o suficiente para um MVP em plano free. Antes de virar produto com usuários reais, priorize **rate limiting**, **armazenamento de imagens fora do banco** e **paginação**.
+O NearGram entrega exatamente a proposta (ver só perto do lugar) com código pequeno, limpo e seguro o suficiente para um MVP em plano free. Neste ciclo foram endereçados **rate limiting**, **armazenamento de imagens fora do banco (opt-in)**, **paginação**, **clusters no mapa**, **gestão de conteúdo (editar/excluir)** e **pooling Postgres**; para virar produto, priorize configurar VAPID + Cloudinary em produção e índices espaciais.

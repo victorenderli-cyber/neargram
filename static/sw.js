@@ -1,4 +1,4 @@
-const CACHE = "neargram-v5";
+const CACHE = "neargram-v6";
 const SHELL = [
   "/",
   "/index.html",
@@ -12,7 +12,10 @@ const SHELL = [
   "/vendor/leaflet/images/marker-icon.png",
   "/vendor/leaflet/images/marker-icon-2x.png",
   "/vendor/leaflet/images/layers.png",
-  "/vendor/leaflet/images/layers-2x.png"
+  "/vendor/leaflet/images/layers-2x.png",
+  "/vendor/leaflet.markercluster/leaflet.markercluster.js",
+  "/vendor/leaflet.markercluster/MarkerCluster.css",
+  "/vendor/leaflet.markercluster/MarkerCluster.Default.css"
 ];
 
 self.addEventListener("install", (e) => {

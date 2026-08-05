@@ -348,6 +348,11 @@ main {
 .comment { font-size: 13px; background: var(--panel2); border-radius: 10px; padding: 8px 10px; }
 .comment .c-author { font-weight: 700; color: var(--accent); margin-right: 6px; }
 .comment .c-time { float: right; font-size: 10px; color: var(--muted); }
+.comment .c-del {
+  float: right; margin-left: 8px; background: transparent; color: var(--muted);
+  font-size: 12px; padding: 0 4px; line-height: 1;
+}
+.comment .c-del:hover { color: var(--accent); }
 #comment-form { display: flex; gap: 8px; }
 #comment-form input { flex: 1; }
 
@@ -448,3 +453,40 @@ html[data-theme="light"] textarea { border-color: #d5d5dd; background: #fff; }
 html[data-theme="light"] .leaflet-container { background: #e6e6ec; }
 html[data-theme="light"] .leaflet-popup-content-wrapper, html[data-theme="light"] .leaflet-popup-tip { background: #fff; color: var(--text); }
 html[data-theme="light"] .map-controls { background: rgba(255,255,255,.85); }
+
+/* ---------- MarkerCluster ---------- */
+.marker-cluster div { background: var(--accent); color: #fff; font-weight: 700; }
+.marker-cluster-small div, .marker-cluster-medium div { background: rgba(253,29,29,.85); }
+.marker-cluster-large div { background: var(--accent); }
+.marker-cluster { background: rgba(253,29,29,.35); }
+
+/* ---------- Editar spot ---------- */
+.spot-edit { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; padding: 12px; background: var(--panel2); border-radius: 10px; }
+.spot-edit textarea { resize: none; }
+.edit-actions { display: flex; gap: 8px; }
+
+/* ---------- Zona de perigo / excluir conta ---------- */
+.danger-zone { margin-top: 16px; padding-top: 14px; border-top: 1px solid #2a2a36; display: flex; flex-direction: column; gap: 10px; }
+#delete-account-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--panel2); border-radius: 10px; }
+#delete-account-error { margin: 0; }
+
+/* ---------- Carregar mais ---------- */
+#btn-load-more { width: 100%; padding: 11px; margin-top: 4px; background: var(--panel2); color: var(--text); font-size: 13px; }
+#btn-load-more:disabled { opacity: .6; }
+
+/* ---------- Toasts ---------- */
+#toasts {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 3000; display: flex; flex-direction: column; gap: 8px; align-items: center;
+  pointer-events: none; width: min(92vw, 420px);
+}
+.toast {
+  background: var(--panel); color: var(--text);
+  border: 1px solid #2a2a36; border-radius: 10px;
+  padding: 10px 16px; font-size: 13px; font-weight: 600;
+  box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  animation: toast-in .18s ease-out;
+}
+.toast.ok { border-color: var(--ok); color: var(--ok); }
+.toast.err { border-color: var(--accent); color: #ff8f8f; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

@@ -341,9 +341,19 @@ class Handler(BaseHTTPRequestHandler):
     pending_cookie = None
 
     def log_message(self, format, *args):
-        sys.stderr.write(
-            f"{self.log_date_time_string()} {self.client_address[0]} \"{format % args}\"\n"
-        )
+        self._json_log("info", "access", status=format % args)
+
+    def _json_log(self, level, event, **fields):
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": level,
+            "event": event,
+            "ip": self._client_ip(),
+            "method": self.command,
+            "path": urlparse(self.path).path,
+        }
+        entry.update(fields)
+        sys.stderr.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     def _client_ip(self):
         forwarded = self.headers.get("X-Forwarded-For", "")
@@ -410,7 +420,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self._security_headers()
         self.end_headers()
@@ -433,6 +443,13 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path.startswith("/api/"):
             self.handle_api("DELETE")
+            return
+        self._send(404, {"error": "not found"})
+
+    def do_PATCH(self):
+        path = urlparse(self.path).path
+        if path.startswith("/api/"):
+            self.handle_api("PATCH")
             return
         self._send(404, {"error": "not found"})
 
@@ -476,6 +493,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_report()
             elif method == "DELETE" and path.startswith("/api/spots/"):
                 self.api_delete_spot()
+            elif method == "PATCH" and path.startswith("/api/spots/"):
+                self.api_edit_spot()
+            elif method == "DELETE" and path.startswith("/api/comments/"):
+                self.api_delete_comment()
+            elif method == "DELETE" and path == "/api/me":
+                self.api_delete_account()
             elif method == "GET" and path == "/api/push/vapid-public-key":
                 self.api_push_vapid_key()
             elif method == "POST" and path == "/api/push/subscribe":
@@ -487,6 +510,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             self._send(400, {"error": str(e)})
         except Exception:
+            self._json_log("error", "unhandled", detail=traceback.format_exc().splitlines()[-1] if traceback.format_exc() else "?")
             traceback.print_exc()
             self._send(500, {"error": "erro interno"})
 
@@ -642,6 +666,13 @@ class Handler(BaseHTTPRequestHandler):
             for r in urows
         ]
         spots = _bulk_public(srows, viewer["id"] if viewer else None, lat, lng)
+        if lat is not None and lng is not None:
+            spots.sort(
+                key=lambda s: (
+                    s["unlocked"] is not True,
+                    s["distance_m"] if s["distance_m"] is not None else float("inf"),
+                )
+            )
         self._send(200, {"users": users, "spots": spots})
 
     def api_notifications(self):
@@ -776,6 +807,99 @@ class Handler(BaseHTTPRequestHandler):
         conn.close()
         self._send(200, {"ok": True})
 
+    def api_edit_spot(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        try:
+            spot_id = int(urlparse(self.path).path.strip("/").split("/")[-1])
+        except ValueError:
+            raise ValueError("id inválido")
+        data = self._read_json()
+        new_name = new_desc = new_radius = None
+        if "name" in data:
+            new_name = str(data.get("name") or "").strip()
+            if not new_name:
+                raise ValueError("nome não pode ficar vazio")
+            if len(new_name) > 120:
+                raise ValueError("nome muito longo")
+        if "description" in data:
+            new_desc = str(data.get("description") or "").strip()
+            if len(new_desc) > 1000:
+                raise ValueError("descrição muito longa")
+        if "radius_m" in data:
+            try:
+                new_radius = int(data["radius_m"])
+            except (TypeError, ValueError):
+                raise ValueError("raio inválido")
+            if not (1 <= new_radius <= 10000):
+                raise ValueError("raio deve estar entre 1 e 10000 m")
+        conn = db.connect()
+        spot = db.execute(conn, "SELECT id, user_id FROM spots WHERE id = ?", (spot_id,)).fetchone()
+        if not spot:
+            conn.close()
+            raise ValueError("spot não existe")
+        if spot["user_id"] != user["id"]:
+            conn.close()
+            self._send(403, {"error": "você só pode editar suas próprias fotos"})
+            return
+        if new_name is not None:
+            db.execute(conn, "UPDATE spots SET name = ? WHERE id = ?", (new_name, spot_id))
+        if new_desc is not None:
+            db.execute(conn, "UPDATE spots SET description = ? WHERE id = ?", (new_desc, spot_id))
+        if new_radius is not None:
+            db.execute(conn, "UPDATE spots SET radius_m = ? WHERE id = ?", (new_radius, spot_id))
+        conn.commit()
+        row = db.execute(conn, "SELECT * FROM spots WHERE id = ?", (spot_id,)).fetchone()
+        conn.close()
+        self._send(200, {"spot": public_spot(row, user["id"], None, None, as_author=True)})
+
+    def api_delete_comment(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        try:
+            comment_id = int(urlparse(self.path).path.strip("/").split("/")[-1])
+        except ValueError:
+            raise ValueError("id inválido")
+        conn = db.connect()
+        row = db.execute(
+            conn,
+            """SELECT c.id, c.user_id, s.user_id AS spot_owner
+               FROM comments c JOIN spots s ON s.id = c.spot_id
+               WHERE c.id = ?""",
+            (comment_id,),
+        ).fetchone()
+        if not row:
+            conn.close()
+            raise ValueError("comentário não existe")
+        if user["id"] != row["user_id"] and user["id"] != row["spot_owner"]:
+            conn.close()
+            self._send(403, {"error": "você não pode excluir esse comentário"})
+            return
+        db.execute(conn, "DELETE FROM comments WHERE id = ?", (comment_id,))
+        conn.commit()
+        conn.close()
+        self._send(200, {"ok": True})
+
+    def api_delete_account(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        data = self._read_json()
+        password = data.get("password") or ""
+        if not verify_password(password, user["password_hash"]):
+            raise ValueError("senha incorreta")
+        conn = db.connect()
+        db.execute(conn, "DELETE FROM users WHERE id = ?", (user["id"],))
+        conn.commit()
+        conn.close()
+        self.pending_cookie = "token=; Max-Age=0; Path=/"
+        self._send(200, {"ok": True})
+
     def _parse_credentials(self):
         data = self._read_json()
         username = (data.get("username") or "").strip()
@@ -858,24 +982,39 @@ class Handler(BaseHTTPRequestHandler):
                 limit = max(1, min(int(query["limit"][0]), MAX_SPOT_LIMIT))
             except ValueError:
                 raise ValueError("limit inválido")
+        offset = 0
+        if query.get("offset"):
+            try:
+                offset = max(0, int(query["offset"][0]))
+            except ValueError:
+                raise ValueError("offset inválido")
         feed_following = (query.get("feed") or [""])[0] == "following"
         conn = db.connect()
         if feed_following and viewer_id:
+            count = db.execute(
+                conn,
+                """SELECT COUNT(*) FROM spots sp
+                   JOIN follows f ON f.followee_id = sp.user_id AND f.follower_id = ?""",
+                (viewer_id,),
+            ).fetchone()[0]
             rows = db.execute(
                 conn,
                 """SELECT sp.* FROM spots sp
                    JOIN follows f ON f.followee_id = sp.user_id AND f.follower_id = ?
                    ORDER BY sp.created_at DESC LIMIT ?""",
-                (viewer_id, limit),
+                (viewer_id, MAX_SPOT_LIMIT),
             ).fetchall()
         else:
+            count = db.execute(conn, "SELECT COUNT(*) FROM spots").fetchone()[0]
             rows = db.execute(
-                conn, "SELECT * FROM spots ORDER BY created_at DESC LIMIT ?", (limit,)
+                conn, "SELECT * FROM spots ORDER BY created_at DESC LIMIT ?", (MAX_SPOT_LIMIT,)
             ).fetchall()
         conn.close()
         spots = _bulk_public(rows, viewer_id, lat, lng)
         if lat is None or lng is None:
-            spots = [dict(s, unlocked=None, distance_m=None) for s in spots]
+            for s in spots:
+                s["unlocked"] = None
+                s["distance_m"] = None
         else:
             spots.sort(
                 key=lambda s: (
@@ -883,7 +1022,10 @@ class Handler(BaseHTTPRequestHandler):
                     s["distance_m"] if s["distance_m"] is not None else float("inf"),
                 )
             )
-        self._send(200, {"spots": spots, "radius_m": DEFAULT_RADIUS_M, "has_more": False})
+        count = min(count, MAX_SPOT_LIMIT)
+        page = spots[offset:offset + limit]
+        has_more = (offset + len(page)) < count
+        self._send(200, {"spots": page, "radius_m": DEFAULT_RADIUS_M, "has_more": has_more})
 
     def api_create_spot(self):
         user = get_user_by_token(self._get_token())

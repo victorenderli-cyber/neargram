@@ -15,10 +15,13 @@
 <link rel="apple-touch-icon" href="/icons/icon-180.png" />
 <link rel="stylesheet" href="style.css" />
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" />
+<link rel="stylesheet" href="/vendor/leaflet.markercluster/MarkerCluster.css" />
+<link rel="stylesheet" href="/vendor/leaflet.markercluster/MarkerCluster.Default.css" />
 </head>
 <body>
 
 <div id="fatal" class="hidden"></div>
+<div id="toasts"></div>
 
 <div id="auth-view" class="hidden">
   <div class="auth-card">
@@ -46,6 +49,7 @@
       <button id="btn-search" title="Buscar lugares e usuários">🔍</button>
       <button id="btn-notifs" title="Notificações">🔔<span id="notif-badge" class="badge hidden"></span></button>
       <button id="btn-theme" title="Alternar tema">🌙</button>
+      <button id="btn-install" class="hidden" title="Instalar o app">⬇️</button>
       <button id="btn-profile" title="Meu perfil">Perfil</button>
       <button id="btn-logout" title="Sair">Sair</button>
     </div>
@@ -142,7 +146,22 @@
       </form>
     </div>
     <div class="spot-owner-actions">
+      <button id="btn-edit-spot" class="btn-primary hidden">✏️ Editar</button>
       <button id="btn-delete-spot" class="btn-danger hidden">Excluir foto</button>
+    </div>
+    <div id="spot-edit" class="spot-edit hidden">
+      <input id="se-name" type="text" placeholder="Nome do lugar" maxlength="60" />
+      <textarea id="se-desc" placeholder="Descrição" maxlength="400"></textarea>
+      <div class="field">
+        <label>Raio de desbloqueio</label>
+        <input id="se-radius" type="range" min="50" max="2000" step="50" value="500" />
+        <span id="se-radius-label">500 m</span>
+      </div>
+      <div class="edit-actions">
+        <button id="btn-save-edit" class="btn-primary">Salvar alterações</button>
+        <button id="btn-cancel-edit">Cancelar</button>
+      </div>
+      <div id="edit-error" class="error hidden"></div>
     </div>
   </div>
 </div>
@@ -166,6 +185,18 @@
     <div id="profile-stats" class="profile-stats"></div>
     <div id="profile-spots" class="profile-grid"></div>
     <p id="profile-empty" class="hint">Você ainda não publicou nenhuma foto. Toque em <b>＋ Nova foto</b> no mapa!</p>
+    <div class="danger-zone">
+      <button id="btn-show-delete-account" class="btn-danger">🗑️ Excluir minha conta</button>
+      <div id="delete-account-box" class="hidden">
+        <p class="hint">Digite sua senha para confirmar. Esta ação apaga seus spots, curtidas e comentários permanentemente.</p>
+        <input id="del-pass" type="password" placeholder="Sua senha" autocomplete="current-password" />
+        <div class="edit-actions">
+          <button id="btn-confirm-delete-account" class="btn-danger">Confirmar exclusão</button>
+          <button id="btn-cancel-delete-account">Cancelar</button>
+        </div>
+        <div id="delete-account-error" class="error hidden"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -206,6 +237,7 @@
 </div>
 
 <script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/vendor/leaflet.markercluster/leaflet.markercluster.js"></script>
 <script src="app.js" onerror="bootFailed('O arquivo do aplicativo não carregou (app.js).')"></script>
 <script>
 function bootFailed(msg) {

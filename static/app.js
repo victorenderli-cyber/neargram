@@ -4,16 +4,46 @@ let state = {
   user: null,
   map: null,
   youMarker: null,
-  spotMarkers: new Map(),
+  clusterGroup: null,
   spots: [],
   radius: 500,
   mode: "real", // real | sim
   currentPos: null, // {lat, lng}
   selectedSpotId: null,
   feedMode: "all", // all | following
+  offset: 0,
+  hasMore: false,
 };
 
 const API = "/api";
+const SPOT_PAGE = 20;
+
+/* ---------------- Toasts ---------------- */
+function toast(msg, type = "") {
+  const host = $("toasts");
+  if (!host) return;
+  const el = document.createElement("div");
+  el.className = "toast " + type;
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity .3s"; }, 2200);
+  setTimeout(() => el.remove(), 2600);
+}
+
+/* ---------------- Instalação PWA ---------------- */
+let deferredInstall = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstall = e;
+  $("btn-install").classList.remove("hidden");
+});
+$("btn-install").addEventListener("click", async () => {
+  if (!deferredInstall) return;
+  deferredInstall.prompt();
+  await deferredInstall.userChoice;
+  deferredInstall = null;
+  $("btn-install").classList.add("hidden");
+});
 
 /* ---------------- Tema claro/escuro ---------------- */
 function applyTheme(t) {
@@ -220,7 +250,7 @@ $("btn-save-profile").addEventListener("click", async () => {
     setAvatar("avatar-nav", res.avatar);
     $("profile-bio").textContent = res.bio || "Sem biografia ainda.";
     $("profile-edit").classList.add("hidden");
-    alert("Perfil atualizado!");
+    toast("Perfil atualizado!", "ok");
   } catch (e) {
     showError("profile-error", e.message);
   }
@@ -232,11 +262,40 @@ async function deleteSpot(id) {
     await api(`/spots/${id}`, { method: "DELETE" });
     hideModal("modal-profile");
     hideModal("modal-spot");
+    toast("Foto excluída", "ok");
     refreshSpots();
   } catch (e) {
     alert(e.message);
   }
 }
+
+/* ---------------- Excluir conta ---------------- */
+$("btn-show-delete-account").addEventListener("click", () => {
+  $("del-pass").value = "";
+  hideError("delete-account-error");
+  $("delete-account-box").classList.remove("hidden");
+});
+$("btn-cancel-delete-account").addEventListener("click", () => {
+  $("delete-account-box").classList.add("hidden");
+});
+$("btn-confirm-delete-account").addEventListener("click", async () => {
+  const btn = $("btn-confirm-delete-account");
+  hideError("delete-account-error");
+  btn.disabled = true;
+  btn.textContent = "Excluindo…";
+  try {
+    await api("/me", { method: "DELETE", body: { password: $("del-pass").value } });
+    hideModal("modal-profile");
+    state.user = null;
+    toast("Conta excluída", "ok");
+    showAuth();
+  } catch (e) {
+    showError("delete-account-error", e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Confirmar exclusão";
+  }
+});
 
 /* ---------------- Boot ---------------- */
 async function boot() {
@@ -368,17 +427,42 @@ async function refreshSpots() {
   if (!hadCards) {
     $("feed").innerHTML = `<div class="feed-card" style="cursor:default;opacity:.75">Buscando lugares perto de você…</div>`;
   }
+  state.spots = [];
+  state.offset = 0;
+  state.hasMore = false;
   try {
-    const feedQ = state.feedMode === "following" ? "&feed=following" : "";
-    const q = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}${feedQ}`;
-    const data = await api("/spots" + q);
-    state.spots = data.spots;
-    state.radius = data.radius_m;
-    renderMapMarkers();
-    renderFeed();
-    renderRadiusHint();
+    await loadSpots();
   } catch (e) {
     console.error(e);
+  }
+}
+
+async function loadSpots() {
+  const feedQ = state.feedMode === "following" ? "&feed=following" : "";
+  const q = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}${feedQ}&limit=${SPOT_PAGE}&offset=${state.offset}`;
+  const data = await api("/spots" + q);
+  state.radius = data.radius_m;
+  if (state.offset === 0) state.spots = data.spots;
+  else state.spots = state.spots.concat(data.spots);
+  state.offset += data.spots.length;
+  state.hasMore = data.has_more;
+  renderMapMarkers();
+  renderFeed();
+  renderRadiusHint();
+}
+
+async function loadMore() {
+  if (!state.hasMore || state._loadingMore) return;
+  state._loadingMore = true;
+  const btn = $("btn-load-more");
+  if (btn) { btn.disabled = true; btn.textContent = "Carregando…"; }
+  try {
+    await loadSpots();
+  } catch (e) {
+    toast(e.message, "err");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Carregar mais lugares"; }
+    state._loadingMore = false;
   }
 }
 
@@ -391,12 +475,15 @@ function renderRadiusHint() {
 }
 
 function renderMapMarkers() {
-  for (const m of state.spotMarkers.values()) m.remove();
-  state.spotMarkers.clear();
+  if (!state.clusterGroup) {
+    state.clusterGroup = L.markerClusterGroup({ showCoverageOnHover: false });
+    state.map.addLayer(state.clusterGroup);
+  }
+  state.clusterGroup.clearLayers();
   state.spots.forEach((s) => {
-    const marker = L.marker([s.lat, s.lng], { icon: renderIcon(s) }).addTo(state.map);
-    marker.on("click", () => openSpot(s.id));
-    state.spotMarkers.set(s.id, marker);
+    const marker = L.marker([s.lat, s.lng], { icon: renderIcon(s) });
+    marker.on("click", () => openSpotDetail(s.id));
+    state.clusterGroup.addLayer(marker);
   });
 }
 
@@ -459,6 +546,13 @@ function renderFeed() {
     card.addEventListener("click", () => openSpotDetail(s.id));
     feed.appendChild(card);
   });
+  if (state.hasMore) {
+    const lm = document.createElement("button");
+    lm.id = "btn-load-more";
+    lm.textContent = "Carregar mais lugares";
+    lm.addEventListener("click", loadMore);
+    feed.appendChild(lm);
+  }
 }
 
 function fmtDistance(m) {
@@ -517,12 +611,38 @@ async function showSpotModal(spot) {
   delBtn.classList.toggle("hidden", !spot.mine);
   delBtn.onclick = () => deleteSpot(spot.id);
 
+  const editBtn = $("btn-edit-spot");
+  editBtn.classList.toggle("hidden", !spot.mine);
+  $("spot-edit").classList.add("hidden");
+  hideError("edit-error");
+
   const cl = $("comments-list");
   cl.innerHTML = spot.comments.length
-    ? spot.comments.map((c) => `<div class="comment"><button class="link-author" data-user="${esc(c.author)}">@${esc(c.author)}</button>${esc(c.text)}<span class="c-time">${fmtDate(c.created_at)}</span></div>`).join("")
+    ? spot.comments.map((c) => {
+        const mine = spot.mine || (state.user && c.author === state.user.username);
+        return `<div class="comment">
+          <button class="link-author" data-user="${esc(c.author)}">@${esc(c.author)}</button>
+          ${esc(c.text)}
+          <span class="c-time">${fmtDate(c.created_at)}</span>
+          ${mine ? `<button class="c-del" data-id="${c.id}" title="Excluir comentário">✕</button>` : ""}
+        </div>`;
+      }).join("")
     : `<div style="color:var(--muted);font-size:13px">Sem comentários ainda.</div>`;
   cl.querySelectorAll(".link-author").forEach((b) =>
     b.addEventListener("click", () => { hideModal("modal-spot"); openUserProfile(b.dataset.user); })
+  );
+  cl.querySelectorAll(".c-del").forEach((b) =>
+    b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm("Excluir este comentário?")) return;
+      try {
+        await api(`/comments/${b.dataset.id}`, { method: "DELETE" });
+        toast("Comentário excluído", "ok");
+        openSpotDetail(state.selectedSpotId);
+      } catch (err) {
+        toast(err.message, "err");
+      }
+    })
   );
 
   showModal("modal-spot");
@@ -549,13 +669,60 @@ $("comment-form").addEventListener("submit", async (e) => {
   openSpotDetail(state.selectedSpotId);
 });
 
+/* ---------------- Editar spot ---------------- */
+function refreshEditRadius(r) { $("se-radius-label").textContent = r + " m"; }
+$("se-radius").addEventListener("input", (e) => refreshEditRadius(parseInt(e.target.value, 10)));
+
+$("btn-edit-spot").addEventListener("click", () => {
+  const spot = state.spots.find((s) => s.id === state.selectedSpotId);
+  if (!spot) return;
+  $("se-name").value = spot.name;
+  $("se-desc").value = spot.description || "";
+  $("se-radius").value = spot.radius_m;
+  refreshEditRadius(spot.radius_m);
+  hideError("edit-error");
+  $("spot-edit").classList.remove("hidden");
+});
+
+$("btn-cancel-edit").addEventListener("click", () => {
+  $("spot-edit").classList.add("hidden");
+});
+
+$("btn-save-edit").addEventListener("click", async () => {
+  const id = state.selectedSpotId;
+  if (!id) return;
+  const btn = $("btn-save-edit");
+  hideError("edit-error");
+  btn.disabled = true;
+  btn.textContent = "Salvando…";
+  try {
+    await api(`/spots/${id}`, {
+      method: "PATCH",
+      body: {
+        name: $("se-name").value,
+        description: $("se-desc").value,
+        radius_m: parseInt($("se-radius").value, 10),
+      },
+    });
+    $("spot-edit").classList.add("hidden");
+    toast("Lugar atualizado!", "ok");
+    openSpotDetail(id);
+    refreshSpots();
+  } catch (e) {
+    showError("edit-error", e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Salvar alterações";
+  }
+});
+
 $("btn-share").addEventListener("click", async () => {
   const id = state.selectedSpotId;
   if (!id) return;
   const url = location.origin + "/#spot=" + id;
   try {
     await navigator.clipboard.writeText(url);
-    alert("Link copiado! Envie para um amigo abrir este lugar: " + url);
+    toast("Link copiado para a área de transferência", "ok");
   } catch (e) {
     prompt("Copie o link:", url);
   }
@@ -633,12 +800,19 @@ $("btn-publish").addEventListener("click", async () => {
     photo,
     radius_m: parseInt($("n-radius").value, 10),
   };
+  const btn = $("btn-publish");
+  btn.disabled = true;
+  btn.textContent = "Publicando…";
   try {
     await api("/spots", { method: "POST", body });
     hideModal("modal-new");
+    toast("Lugar publicado! 📍", "ok");
     refreshSpots();
   } catch (err) {
     showError("publish-error", err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Publicar 📍";
   }
 });
 
