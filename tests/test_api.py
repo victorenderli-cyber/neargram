@@ -289,6 +289,75 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(data["spots"], [])
         self.assertEqual(data["users"], [])
 
+    def test_16_gzip_and_security_headers(self):
+        import gzip as gz
+        req = urllib.request.Request(self.base + "/app.js")
+        req.add_header("Accept-Encoding", "gzip")
+        r = urllib.request.urlopen(req, timeout=10)
+        self.assertEqual(r.headers.get("Content-Encoding"), "gzip")
+        self.assertEqual(r.headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertIn("frame-ancestors 'none'", r.headers.get("Content-Security-Policy", ""))
+        raw = gz.decompress(r.read())
+        self.assertIn(b"compressImage", raw)
+        status, _, data = self.call("/api/me")
+        self.assertEqual(status, 200)
+        self.assertEqual(data, {"user": None})
+
+    def test_17_feed_sorted_by_proximity(self):
+        a = self.register("yannick")
+        self.call(
+            "/api/spots", "POST",
+            {"name": "Perto", "lat": -22.9519, "lng": -43.2105, "photo": PNG, "radius_m": 500},
+            a,
+        )
+        self.call(
+            "/api/spots", "POST",
+            {"name": "Longe", "lat": -23.5, "lng": -46.6, "photo": PNG, "radius_m": 500},
+            a,
+        )
+        status, _, data = self.call("/api/spots?lat=-22.9519&lng=-43.2105")
+        self.assertEqual(status, 200)
+        names = [s["name"] for s in data["spots"]]
+        self.assertLess(names.index("Perto"), names.index("Longe"))
+        self.assertTrue(data["spots"][0]["unlocked"])
+
+    def test_18_push_subscribe_endpoints(self):
+        a = self.register("zoey")
+        status, _, data = self.call("/api/push/vapid-public-key")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["key"], "")
+        status, _, data = self.call(
+            "/api/push/subscribe", "POST",
+            {"endpoint": "https://fcm.example.com/x", "p256dh": "AAAA", "auth": "BBBB"},
+            a,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(data["ok"])
+        status, _, data = self.call(
+            "/api/push/subscribe", "POST",
+            {"endpoint": "not-a-url", "p256dh": "AAAA", "auth": "BBBB"},
+            a,
+        )
+        self.assertEqual(status, 400)
+        status, _, data = self.call(
+            "/api/push/subscribe", "DELETE",
+            {"endpoint": "https://fcm.example.com/x"},
+            a,
+        )
+        self.assertEqual(status, 200)
+
+    def test_19_photo_still_served_as_base64_without_cloud(self):
+        a = self.register("anais")
+        _, _, create = self.call(
+            "/api/spots", "POST",
+            {"name": "Sem cloud", "lat": -22.95, "lng": -43.21, "photo": PNG, "radius_m": 500},
+            a,
+        )
+        spot_id = create["spot"]["id"]
+        status, _, raw = self.call(f"/api/spots/{spot_id}/photo?lat=-22.95&lng=-43.21")
+        self.assertEqual(status, 200)
+        self.assertEqual(raw[:4], b"\x89PNG")
+
 
 if __name__ == "__main__":
     unittest.main()

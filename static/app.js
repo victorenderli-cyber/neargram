@@ -39,6 +39,67 @@ function setAvatar(id, dataUrl) {
   }
 }
 
+function compressImage(dataUrl, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        let { width, height } = img;
+        const scale = Math.min(1, maxDim / Math.max(width, height));
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        let out = canvas.toDataURL("image/jpeg", quality);
+        if (out.length > MAX_UPLOAD_B64) out = canvas.toDataURL("image/jpeg", 0.65);
+        resolve(out);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = () => reject(new Error("não foi possível ler a imagem"));
+    img.src = dataUrl;
+  });
+}
+
+/* ---------------- Notificações push ---------------- */
+async function enablePush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || state._pushTried) return;
+  state._pushTried = true;
+  if (localStorage.getItem("ng-push-denied")) return;
+  try {
+    const res = await api("/push/vapid-public-key");
+    if (!res.key) return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(res.key),
+    });
+    await api("/push/subscribe", {
+      method: "POST",
+      body: { endpoint: sub.endpoint, p256dh: btoa(String.fromCharCode(...new Uint8Array(sub.getKey("p256dh")))), auth: btoa(String.fromCharCode(...new Uint8Array(sub.getKey("auth")))) },
+    });
+  } catch (e) {
+    console.warn("push não habilitado:", e);
+    if (e && (e.name === "NotAllowedError" || e.name === "PermissionDeniedError")) {
+      localStorage.setItem("ng-push-denied", "1");
+    }
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+const MAX_UPLOAD_B64 = 8 * 1024 * 1024;
+
 async function api(path, opts = {}) {
   const res = await fetch(API + path, {
     headers: { "Content-Type": "application/json" },
@@ -133,13 +194,18 @@ $("btn-edit-profile").addEventListener("click", () => {
   $("profile-edit").classList.remove("hidden");
 });
 
-$("avatar-input").addEventListener("change", (e) => {
+$("avatar-input").addEventListener("change", async (e) => {
   const f = e.target.files[0];
   if (!f || !f.type.startsWith("image/")) return;
   const reader = new FileReader();
-  reader.onload = () => {
-    $("profile-avatar").src = reader.result;
-    window._newAvatar = reader.result;
+  reader.onload = async () => {
+    try {
+      const small = await compressImage(reader.result, 512, 0.85);
+      $("profile-avatar").src = small;
+      window._newAvatar = small;
+    } catch (err) {
+      alert(err.message);
+    }
   };
   reader.readAsDataURL(f);
 });
@@ -186,6 +252,7 @@ async function boot() {
 function showAuth() {
   $("app-view").classList.add("hidden");
   $("auth-view").classList.remove("hidden");
+  if (state._notifTimer) { clearInterval(state._notifTimer); state._notifTimer = null; }
 }
 function showApp() {
   $("auth-view").classList.add("hidden");
@@ -193,6 +260,10 @@ function showApp() {
   $("username-label").textContent = "@" + state.user.username;
   setAvatar("avatar-nav", state.user.avatar);
   loadNotifications();
+  if (!state._notifTimer) {
+    state._notifTimer = setInterval(loadNotifications, 30000);
+  }
+  enablePush();
 }
 
 /* ---------------- Map ---------------- */
@@ -293,6 +364,10 @@ function youIcon() {
 /* ---------------- Spots ---------------- */
 async function refreshSpots() {
   if (!state.currentPos) return;
+  const hadCards = $("feed").querySelectorAll(".feed-card").length > 0;
+  if (!hadCards) {
+    $("feed").innerHTML = `<div class="feed-card" style="cursor:default;opacity:.75">Buscando lugares perto de você…</div>`;
+  }
   try {
     const feedQ = state.feedMode === "following" ? "&feed=following" : "";
     const q = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}${feedQ}`;
@@ -513,6 +588,7 @@ $("btn-new").addEventListener("click", () => {
   $("photo-preview").classList.add("hidden");
   $("photo-placeholder").style.display = "block";
   hideError("publish-error");
+  window._photoDataUrl = null;
   $("n-name").value = "";
   $("n-desc").value = "";
   $("n-radius").value = 500;
@@ -527,10 +603,16 @@ $("photo-input").addEventListener("change", (e) => {
   if (!f) return;
   if (!f.type.startsWith("image/")) return;
   const reader = new FileReader();
-  reader.onload = () => {
-    $("photo-preview").src = reader.result;
-    $("photo-preview").classList.remove("hidden");
-    $("photo-placeholder").style.display = "none";
+  reader.onload = async () => {
+    try {
+      const small = await compressImage(reader.result, 1280, 0.8);
+      window._photoDataUrl = small;
+      $("photo-preview").src = small;
+      $("photo-preview").classList.remove("hidden");
+      $("photo-placeholder").style.display = "none";
+    } catch (err) {
+      showError("publish-error", err.message);
+    }
   };
   reader.readAsDataURL(f);
 });
@@ -539,7 +621,7 @@ $("n-radius").addEventListener("input", (e) => refreshRadius(parseInt(e.target.v
 $("btn-publish").addEventListener("click", async () => {
   if (!state.user) return;
   hideError("publish-error");
-  const photo = $("photo-preview").src;
+  const photo = window._photoDataUrl;
   if (!photo || photo.startsWith(location.origin)) {
     return showError("publish-error", "escolha uma foto primeiro");
   }

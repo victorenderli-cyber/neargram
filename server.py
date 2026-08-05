@@ -1,4 +1,5 @@
 import base64
+import gzip
 import hashlib
 import json
 import math
@@ -8,6 +9,8 @@ import sys
 import threading
 import time
 import traceback
+import urllib.request
+import urllib.error
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,6 +26,32 @@ RATE_LIMIT_MAX = 10
 RATE_LIMIT_WINDOW = 60
 DEFAULT_SPOT_LIMIT = 100
 MAX_SPOT_LIMIT = 500
+
+GZIP_MIN_BYTES = 256
+CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_UPLOAD_PRESET = os.environ.get("CLOUDINARY_UPLOAD_PRESET")
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:admin@neargram.app")
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "geolocation=(self)",
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.cloudinary.com; "
+        "connect-src 'self'; "
+        "font-src 'self' data:; "
+        "object-src 'none'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'none'; "
+        "form-action 'self'"
+    ),
+}
 
 
 def haversine_m(lat1, lng1, lat2, lng2):
@@ -250,6 +279,63 @@ def _public_user(user, viewer_id):
     }
 
 
+def _cloudinary_upload(raw, mime):
+    """Envia a imagem para o Cloudinary (unsigned upload). Retorna URL ou None se não configurado."""
+    if not CLOUDINARY_CLOUD_NAME or not CLOUDINARY_UPLOAD_PRESET:
+        return None
+    boundary = "----neargram" + secrets.token_hex(8)
+    ext = {"image/png": "png", "image/webp": "webp"}.get(mime, "jpg")
+    body = bytearray()
+    body += f"--{boundary}\r\nContent-Disposition: form-data; name=\"upload_preset\"\r\n\r\n{CLOUDINARY_UPLOAD_PRESET}\r\n".encode()
+    body += f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"photo.{ext}\"\r\nContent-Type: {mime}\r\n\r\n".encode()
+    body += raw
+    body += f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(
+        f"https://api.cloudinary.com/v1_1/{CLOUDINARY_CLOUD_NAME}/image/upload",
+        data=bytes(body),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8")).get("secure_url")
+
+
+def _notify_user(user_id, title, body, spot_id=None):
+    """Envia Web Push para o usuário. Sem VAPID configurado, não faz nada."""
+    if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+        return
+    try:
+        from pywebpush import webpush
+    except Exception:
+        return
+    conn = db.connect()
+    subs = db.execute(
+        conn, "SELECT endpoint, p256dh, auth FROM push_subs WHERE user_id = ?", (user_id,)
+    ).fetchall()
+    conn.close()
+    if not subs:
+        return
+    payload = json.dumps({
+        "title": title,
+        "body": body,
+        "url": f"/#spot={spot_id}" if spot_id else "/",
+    })
+    vapid_claims = {"sub": VAPID_SUBJECT}
+    for s in subs:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": s["endpoint"],
+                    "keys": {"p256dh": s["p256dh"], "auth": s["auth"]},
+                },
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims=vapid_claims,
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "NearGram/1.0"
     pending_cookie = None
@@ -268,20 +354,41 @@ class Handler(BaseHTTPRequestHandler):
     def _secure(self):
         return self.headers.get("X-Forwarded-Proto", "http") == "https"
 
-    def _send(self, status, data, content_type="application/json"):
+    def _gzip_if_possible(self, body, content_type):
+        accepts = self.headers.get("Accept-Encoding", "")
+        compressible = (
+            content_type.startswith("text/")
+            or "application/json" in content_type
+            or "javascript" in content_type
+            or "image/svg+xml" in content_type
+        )
+        if compressible and "gzip" in accepts and len(body) >= GZIP_MIN_BYTES:
+            return gzip.compress(body, 6), "gzip"
+        return body, None
+
+    def _security_headers(self):
+        for k, v in SECURITY_HEADERS.items():
+            self.send_header(k, v)
+
+    def _send(self, status, data, content_type="application/json", cache_control="no-store"):
         if isinstance(data, (dict, list)):
-            body = json.dumps(data).encode("utf-8")
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         elif isinstance(data, bytes):
             body = data
         else:
             body = str(data).encode("utf-8")
+        body, encoding = self._gzip_if_possible(body, content_type)
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         if self.pending_cookie:
             self.send_header("Set-Cookie", self.pending_cookie)
             self.pending_cookie = None
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Cache-Control", cache_control)
+        self._security_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -303,8 +410,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self._security_headers()
         self.end_headers()
 
     def do_GET(self):
@@ -368,6 +476,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_report()
             elif method == "DELETE" and path.startswith("/api/spots/"):
                 self.api_delete_spot()
+            elif method == "GET" and path == "/api/push/vapid-public-key":
+                self.api_push_vapid_key()
+            elif method == "POST" and path == "/api/push/subscribe":
+                self.api_push_subscribe()
+            elif method == "DELETE" and path == "/api/push/subscribe":
+                self.api_push_unsubscribe()
             else:
                 self._send(404, {"error": "endpoint not found"})
         except ValueError as e:
@@ -496,6 +610,8 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit()
         count = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE followee_id = ?", (target,)).fetchone()[0]
         conn.close()
+        if following:
+            _notify_user(target, "@{} te seguiu".format(user["username"]), "", None)
         self._send(200, {"following": following, "followers": count})
 
     def api_search(self, query):
@@ -566,6 +682,49 @@ class Handler(BaseHTTPRequestHandler):
             return
         conn = db.connect()
         db.execute(conn, "UPDATE notifications SET read = 1 WHERE user_id = ?", (user["id"],))
+        conn.commit()
+        conn.close()
+        self._send(200, {"ok": True})
+
+    def api_push_vapid_key(self):
+        self._send(200, {"key": VAPID_PUBLIC_KEY})
+
+    def api_push_subscribe(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        data = self._read_json()
+        endpoint = (data.get("endpoint") or "").strip()
+        p256dh = (data.get("p256dh") or "").strip()
+        auth = (data.get("auth") or "").strip()
+        if not (endpoint.startswith("https://") and p256dh and auth):
+            raise ValueError("subscription inválida")
+        if len(endpoint) > 1000 or len(p256dh) > 500 or len(auth) > 500:
+            raise ValueError("subscription muito longa")
+        conn = db.connect()
+        db.execute(conn, "DELETE FROM push_subs WHERE endpoint = ?", (endpoint,))
+        db.execute(
+            conn,
+            "INSERT INTO push_subs (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)",
+            (user["id"], endpoint, p256dh, auth),
+        )
+        conn.commit()
+        conn.close()
+        self._send(200, {"ok": True})
+
+    def api_push_unsubscribe(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        data = self._read_json()
+        endpoint = (data.get("endpoint") or "").strip()
+        conn = db.connect()
+        if endpoint:
+            db.execute(conn, "DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?", (endpoint, user["id"]))
+        else:
+            db.execute(conn, "DELETE FROM push_subs WHERE user_id = ?", (user["id"],))
         conn.commit()
         conn.close()
         self._send(200, {"ok": True})
@@ -717,6 +876,13 @@ class Handler(BaseHTTPRequestHandler):
         spots = _bulk_public(rows, viewer_id, lat, lng)
         if lat is None or lng is None:
             spots = [dict(s, unlocked=None, distance_m=None) for s in spots]
+        else:
+            spots.sort(
+                key=lambda s: (
+                    s["unlocked"] is not True,
+                    s["distance_m"] if s["distance_m"] is not None else float("inf"),
+                )
+            )
         self._send(200, {"spots": spots, "radius_m": DEFAULT_RADIUS_M, "has_more": False})
 
     def api_create_spot(self):
@@ -753,12 +919,19 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("foto inválida (base64 quebrado)")
         if len(raw) > MAX_IMAGE_BYTES:
             raise ValueError("foto muito grande (máx 6MB)")
+        stored = payload
+        try:
+            url = _cloudinary_upload(raw, mime)
+            if url:
+                stored = url
+        except Exception:
+            traceback.print_exc()
         conn = db.connect()
         spot_id = db.insert_id(
             conn,
             """INSERT INTO spots (user_id, name, description, lat, lng, photo_b64, photo_mime, radius_m)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user["id"], name, description, lat, lng, payload, mime, radius),
+            (user["id"], name, description, lat, lng, stored, mime, radius),
         )
         spot = db.execute(conn, "SELECT * FROM spots WHERE id = ?", (spot_id,)).fetchone()
         conn.close()
@@ -790,11 +963,20 @@ class Handler(BaseHTTPRequestHandler):
             if haversine_m(lat, lng, spot["lat"], spot["lng"]) > spot["radius_m"]:
                 self._send(403, {"error": "locked"})
                 return
+        stored = spot["photo_b64"]
+        if stored.startswith("http"):
+            self.send_response(302)
+            self.send_header("Location", stored)
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self._security_headers()
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         try:
-            raw = base64.b64decode(spot["photo_b64"])
+            raw = base64.b64decode(stored)
         except Exception:
             raw = b""
-        self._send(200, raw, content_type=f"image/{spot['photo_mime']}")
+        self._send(200, raw, content_type=f"image/{spot['photo_mime']}", cache_control="public, max-age=86400")
 
     def api_like(self):
         user = get_user_by_token(self._get_token())
@@ -825,6 +1007,8 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit()
         count = db.execute(conn, "SELECT COUNT(*) FROM likes WHERE spot_id = ?", (spot_id,)).fetchone()[0]
         conn.close()
+        if liked and spot["user_id"] != user["id"]:
+            _notify_user(spot["user_id"], "Nova curtida ♥", "@{} curtiu sua foto".format(user["username"]), spot_id)
         self._send(200, {"liked": liked, "like_count": count})
 
     def api_comment(self):
@@ -854,6 +1038,12 @@ class Handler(BaseHTTPRequestHandler):
             )
         conn.commit()
         conn.close()
+        if spot["user_id"] != user["id"]:
+            snippet = (text[:100] + "…") if len(text) > 100 else text
+            _notify_user(
+                spot["user_id"], "Novo comentário 💬",
+                "@{}: {}".format(user["username"], snippet), spot_id,
+            )
         self._send(201, {"ok": True})
 
     def serve_static(self, path):
@@ -882,9 +1072,15 @@ class Handler(BaseHTTPRequestHandler):
         }.get(ext, "application/octet-stream")
         with open(full, "rb") as f:
             body = f.read()
+        body, encoding = self._gzip_if_possible(body, mime)
         self.send_response(200)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(body)))
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self._security_headers()
         self.end_headers()
         self.wfile.write(body)
 

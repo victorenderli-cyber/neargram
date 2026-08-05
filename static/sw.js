@@ -1,4 +1,4 @@
-const CACHE = "neargram-v4";
+const CACHE = "neargram-v5";
 const SHELL = [
   "/",
   "/index.html",
@@ -51,5 +51,37 @@ self.addEventListener("fetch", (e) => {
         }).catch(() => cached);
         return cached || network;
       })
+  );
+});
+
+self.addEventListener("push", (e) => {
+  let data = { title: "NearGram", body: "", url: "/" };
+  if (e.data) {
+    try { data = Object.assign(data, e.data.json()); } catch (err) {}
+  }
+  e.waitUntil(
+    self.registration.showNotification(data.title || "NearGram", {
+      body: data.body || "",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: { url: data.url || "/" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || "/";
+  e.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ("focus" in c) {
+          c.focus();
+          if (c.navigate) c.navigate(url);
+          return;
+        }
+      }
+      return clients.openWindow(url);
+    })
   );
 });

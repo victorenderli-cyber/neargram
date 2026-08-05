@@ -103,6 +103,13 @@ def schema():
                 spot_id INTEGER NOT NULL REFERENCES spots(id) ON DELETE CASCADE,
                 reason TEXT NOT NULL,
                 created_at TEXT DEFAULT {now})""",
+            f"""CREATE TABLE IF NOT EXISTS push_subs (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                endpoint TEXT NOT NULL UNIQUE,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                created_at TEXT DEFAULT {now})""",
         ]
     return [
         """CREATE TABLE IF NOT EXISTS users (
@@ -157,6 +164,13 @@ def schema():
             reporter_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
             spot_id INTEGER NOT NULL REFERENCES spots(id) ON DELETE CASCADE,
             reason TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')))""",
+        """CREATE TABLE IF NOT EXISTS push_subs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            endpoint TEXT NOT NULL UNIQUE,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
             created_at TEXT DEFAULT (datetime('now')))""",
     ]
 

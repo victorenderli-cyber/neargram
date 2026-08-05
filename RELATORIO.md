@@ -41,6 +41,14 @@
 ### PWA (instalável)
 - `manifest.json`, service worker com cache offline (só o shell; API/tiles não são cacheados).
 - Instalável como app no Android (Chrome) e iOS (Safari → Adicionar à Tela de Início).
+- **Web Push** (opt-in): notificações nativas de curtida/comentário/follow (VAPID; requer `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` no ambiente).
+
+### Performance e robustez
+- **Compressão de imagem no cliente** (canvas → JPEG 1280px no upload de fotos, 512px no avatar), reduzindo até ~90% do payload.
+- **gzip** automático em JSON e estáticos (quando o cliente aceita `Accept-Encoding: gzip`).
+- **Cabeçalhos de segurança**: CSP, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`.
+- **Storage externo opt-in**: se `CLOUDINARY_CLOUD_NAME` + `CLOUDINARY_UPLOAD_PRESET` estiverem configurados, as fotos vão para o Cloudinary (URL salva; redirect 302 na entrega); senão, mantém base64 no banco.
+- **Feed ordenado por proximidade** (desbloqueadas primeiro, depois por distância) e **polling** de notificações (badge atualiza a cada 30 s).
 
 ---
 
@@ -51,11 +59,12 @@
 | Backend | Python 3.12 — servidor HTTP próprio (`http.server`, sem frameworks) |
 | Banco | PostgreSQL (produção) / SQLite (desenvolvimento), camada `db.py` agnóstica |
 | Frontend | HTML + CSS + JavaScript puro + **Leaflet** + OpenStreetMap |
-| PWA | `manifest.json`, service worker, ícones |
-| Segurança | PBKDF2 (120k iterações), sessão por cookie |
+| PWA | `manifest.json`, service worker, ícones, **Web Push (VAPID)** |
+| Segurança | PBKDF2 (120k iterações), sessão por cookie, CSP + headers de segurança |
 | Deploy | Render (web service free) + PostgreSQL free |
+| Extras (opt-in) | Cloudinary (fotos externas), `pywebpush` |
 
-Única dependência Python: `psycopg2-binary==2.9.10`.
+Dependências Python: `psycopg2-binary` (Postgres) e `pywebpush` (Web Push — import preguiçoso; sem VAPID configurado não é usado).
 
 ---
 
@@ -90,10 +99,11 @@ static/
   index.html     # tela de login + app + modais
   app.js         # lógica do cliente (mapa, feed, modais, boot)
   style.css      # tema dark estilo Instagram
-  sw.js          # service worker (cache offline)
+  sw.js          # service worker (cache offline + Web Push)
   manifest.json  # metadados PWA
   icons/         # ícones do app
   vendor/leaflet # Leaflet servido localmente (sem CDN)
+tools/gen_vapid.py # gera chaves VAPID para Web Push
 RELATORIO.md     # este documento
 ```
 
@@ -111,6 +121,7 @@ RELATORIO.md     # este documento
 | `follows` | Seguidores | `follower_id`+`followee_id` (PK composta), `created_at` |
 | `notifications` | Notificações | `id`, `user_id`, `actor_id`, `type`, `spot_id`, `text`, `read`, `created_at` |
 | `reports` | Denúncias | `id`, `reporter_id`, `spot_id`, `reason`, `created_at` |
+| `push_subs` | Assinaturas Web Push | `id`, `user_id`, `endpoint` (único), `p256dh`, `auth`, `created_at` |
 
 Relacionamentos: `spots`, `sessions`, `likes`, `comments`, `follows`, `notifications` e `reports` usam `ON DELETE CASCADE` em relação a `users`/`spots` (exceto `reports.reporter_id` que usa `SET NULL`). No Postgres as tabelas ficam isoladas no **schema `neargram`** para conviver com outro app no mesmo banco free sem conflito. Para bancos existentes, `db.migrate()` adiciona `bio`/`avatar` via `ALTER TABLE`.
 
@@ -138,6 +149,9 @@ Relacionamentos: `spots`, `sessions`, `likes`, `comments`, `follows`, `notificat
 | POST | `/api/spots/:id/comments` | Comentar (gera notificação) | cookie |
 | POST | `/api/spots/:id/report` | Denunciar conteúdo (rate limit por IP) | cookie |
 | DELETE | `/api/spots/:id` | Excluir (somente autor) | cookie |
+| GET | `/api/push/vapid-public-key` | Chave pública VAPID (para assinar push) | — |
+| POST | `/api/push/subscribe` | Registra assinatura de push do usuário | cookie |
+| DELETE | `/api/push/subscribe` | Remove assinatura de push | cookie |
 
 Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora do `radius_m`, a foto retorna `403 locked`.
 
@@ -174,6 +188,7 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 - Código publicado idêntico ao local.
 - **Domínio próprio ativo:** <https://neargram.duckdns.org> (site, PWA, API e SSL verificados — `200`).
 - Última correção em produção: **endurecimento da tela preta** — limpeza de cache do service worker (`v2`), erro de boot visível (overlay `#fatal`) e fallback se `app.js` não carregar.
+- **Melhorias aplicadas (a publicar):** compressão de imagem no cliente, gzip, CSP/security headers, feed por proximidade, polling de notificações, Web Push e Cloudinary opt-in (SW v5).
 
 ---
 
@@ -191,25 +206,30 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `ad97d9f` | Adiciona relatório do projeto e marca domínio próprio como concluído |
 | `bef3ac6` | Correções da avaliação: rate limit, expiração de sessão, 500 genérico, logs, fim do N+1, paginação, testes |
 | `7fa64c8` | Corrige bug crítico: prefixo `/api` duplicado em app.js (404 → tela preta). SW v3 |
-| *(atual)* | **Novas funcionalidades:** seguidores/follow + feed "Seguindo", busca, notificações, bio+avatar, compartilhar link, denúncia, modo claro/escuro. Fix: botão curtir (span `like-count` era destruído ao abrir o modal do spot). SW v4. 15 testes |
+| `31d621b` | **Novas funcionalidades:** seguidores/follow + feed "Seguindo", busca, notificações, bio+avatar, compartilhar link, denúncia, modo claro/escuro. Fix: botão curtir (span `like-count` era destruído). SW v4. 15 testes |
+| *(atual)* | **Melhorias:** compressão de imagem no cliente, gzip, cabeçalhos de segurança (CSP), feed ordenado por proximidade, polling de notificações, Web Push opt-in (VAPID), storage Cloudinary opt-in, `tools/gen_vapid.py`. SW v5. 19 testes |
 
 ---
 
 ## 12. Pendências e melhorias sugeridas
 
-1. **Servir imagens por CDN/arquivo** em vez de base64 no banco (escalabilidade e tamanho).
-2. **Notificações push** (ex.: "alguém comentou em um lugar que você curtiu").
-3. Compressão da imagem no cliente antes do upload; gzip nas respostas.
+1. **Notificações push ativas em produção**: executar `python tools/gen_vapid.py` e configurar `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` no Render (o backend já está pronto).
+2. **Fotos no Cloudinary em produção**: configurar `CLOUDINARY_CLOUD_NAME` e `CLOUDINARY_UPLOAD_PRESET` (o backend já envia as fotos para lá quando presentes; senão mantém base64).
+3. **Imagens por CDN/S3 genérico** (o Cloudinary é o caminho já implementado; S3/Backblaze seguiriam o mesmo padrão).
+4. Compressão **gzip em imagens** não se aplica (já são JPEG/PNG); otimizar formato (WebP/AVIF) no cliente.
 
 ### ✔ Concluídos
 - Domínio próprio **`neargram.duckdns.org`** configurado e funcionando (A record + Custom Domain no Render).
 - Endurecimento da tela preta (erro de boot visível, cache SW v2, fallback `app.js`).
 - **Endurecimento do backend (avaliação):** rate limiting em login/registro (429), expiração de sessões (30 dias) + `Max-Age` no cookie, 500 sem vazar detalhes internos, logs de requisição habilitados, consultas em lote (fim do N+1), paginação (`limit`) em `/api/spots`.
-- **Testes automatizados:** `tests/test_api.py` (15 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit, bio/avatar, follow, notificações, feed "seguindo", denúncia e busca.
+- **Testes automatizados:** `tests/test_api.py` (19 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit, bio/avatar, follow, notificações, feed "seguindo", denúncia, busca, **gzip/security headers, ordenação por proximidade, push subscribe**.
 - **Redes sociais:** seguidores/follow, perfil público, feed "Seguindo", notificações de curtida/comentário/follow, busca de lugares e usuários.
 - **Perfil rico:** bio e foto de avatar (upload), stats de seguidores/seguindo.
 - **Compartilhamento e moderação:** link direto do lugar (`#spot=ID`) e denúncia de conteúdo impróprio.
-- **UX:** modo claro/escuro persistente e fix do botão curtir no modal do spot.
+- **UX:** modo claro/escuro persistente, fix do botão curtir no modal do spot, feed ordenado por proximidade, loading do feed e polling de notificações.
+- **Performance:** compressão de imagem no cliente (canvas), gzip em respostas JSON/estáticas.
+- **Segurança:** CSP + `nosniff`/`X-Frame-Options`/`Referrer-Policy`/`Permissions-Policy`.
+- **Push (código pronto, precisa das env VAPID):** assinatura no cliente, endpoints `/api/push/*`, envio de curtida/comentário/follow e handlers `push`/`notificationclick` no service worker.
 
 ---
 
@@ -258,11 +278,14 @@ O banco é criado automaticamente na primeira execução (`db.init()`).
 | Prioridade | Ação | Status |
 |---|---|---|
 | Alta | Rate limiting em login/registro; expiração de sessão; parar de vazar erros internos | ✔ feito |
-| Alta | Migrar fotos para armazenamento de objetos (ex.: Cloudinary/S3) com URL no banco | pendente |
+| Alta | Migrar fotos para armazenamento de objetos (ex.: Cloudinary/S3) com URL no banco | ✔ feito (opt-in Cloudinary; configurar env p/ ativar) |
 | Média | Paginar `/api/spots` e otimizar as consultas (join em vez de N+1) | ✔ feito (limite no API; pooling ainda pendente) |
-| Média | Adicionar testes básicos (`unittest` em `tests/test_api.py`) | ✔ feito |
+| Média | Adicionar testes básicos (`unittest` em `tests/test_api.py`) | ✔ feito (19 testes) |
 | Média | Logging de requisições | ✔ feito (stderr; estruturado segue pendente) |
-| Baixa | Compressão da imagem no cliente antes do upload; gzip nas respostas | pendente |
+| Baixa | Compressão da imagem no cliente antes do upload | ✔ feito (canvas → JPEG 1280px/512px) |
+| Baixa | gzip nas respostas | ✔ feito (JSON + estáticos) |
+| Baixa | Cabeçalhos de segurança (CSP, nosniff, X-Frame-Options) | ✔ feito |
+| Baixa | Notificações push | ✔ código pronto (VAPID via env) |
 
 ### Conclusão
 O NearGram entrega exatamente a proposta (ver só perto do lugar) com código pequeno, limpo e seguro o suficiente para um MVP em plano free. Antes de virar produto com usuários reais, priorize **rate limiting**, **armazenamento de imagens fora do banco** e **paginação**.
