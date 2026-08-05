@@ -185,6 +185,18 @@
     <div id="profile-stats" class="profile-stats"></div>
     <div id="profile-spots" class="profile-grid"></div>
     <p id="profile-empty" class="hint">Você ainda não publicou nenhuma foto. Toque em <b>＋ Nova foto</b> no mapa!</p>
+    <div class="change-pass">
+      <button id="btn-show-change-pass" class="btn-primary">🔑 Alterar senha</button>
+      <div id="change-pass-box" class="hidden">
+        <input id="cp-current" type="password" placeholder="Senha atual" autocomplete="current-password" />
+        <input id="cp-new" type="password" placeholder="Nova senha (mín. 4 caracteres)" autocomplete="new-password" />
+        <div class="edit-actions">
+          <button id="btn-confirm-change-pass" class="btn-primary">Salvar nova senha</button>
+          <button id="btn-cancel-change-pass">Cancelar</button>
+        </div>
+        <div id="change-pass-error" class="error hidden"></div>
+      </div>
+    </div>
     <div class="danger-zone">
       <button id="btn-show-delete-account" class="btn-danger">🗑️ Excluir minha conta</button>
       <div id="delete-account-box" class="hidden">

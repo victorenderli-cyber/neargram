@@ -442,6 +442,17 @@ class ApiTestCase(unittest.TestCase):
         status, _, me = self.call("/api/me", cookie=a)
         self.assertIsNone(me["user"])
 
+    def test_24_change_password(self):
+        a = self.register("igor")
+        status, _, _ = self.call("/api/profile/password", "POST", {"current_password": "errada", "new_password": "nova123"}, a)
+        self.assertEqual(status, 400)
+        status, _, data = self.call("/api/profile/password", "POST", {"current_password": "senha123", "new_password": "nova123"}, a)
+        self.assertEqual(status, 200)
+        status, _, data = self.call("/api/login", "POST", {"username": "igor", "password": "nova123"})
+        self.assertEqual(status, 200)
+        status, _, data = self.call("/api/login", "POST", {"username": "igor", "password": "senha123"})
+        self.assertEqual(status, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

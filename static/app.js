@@ -4,6 +4,7 @@ let state = {
   user: null,
   map: null,
   youMarker: null,
+  radiusCircle: null,
   clusterGroup: null,
   spots: [],
   radius: 500,
@@ -30,6 +31,21 @@ function toast(msg, type = "") {
   setTimeout(() => el.remove(), 2600);
 }
 
+function toastAction(msg, label, fn) {
+  const host = $("toasts");
+  if (!host) return;
+  const el = document.createElement("div");
+  el.className = "toast action";
+  const txt = document.createElement("span");
+  txt.textContent = msg;
+  const b = document.createElement("button");
+  b.textContent = label;
+  b.addEventListener("click", () => { el.remove(); fn(); });
+  el.appendChild(txt);
+  el.appendChild(b);
+  host.appendChild(el);
+}
+
 /* ---------------- Instalação PWA ---------------- */
 let deferredInstall = null;
 window.addEventListener("beforeinstallprompt", (e) => {
@@ -50,6 +66,8 @@ function applyTheme(t) {
   document.documentElement.dataset.theme = t;
   localStorage.setItem("ng-theme", t);
   $("btn-theme").textContent = t === "light" ? "☀️" : "🌙";
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", t === "light" ? "#f4f4f7" : "#0f0f14");
 }
 $("btn-theme").addEventListener("click", () => {
   const cur = document.documentElement.dataset.theme === "light" ? "light" : "dark";
@@ -297,6 +315,36 @@ $("btn-confirm-delete-account").addEventListener("click", async () => {
   }
 });
 
+/* ---------------- Alterar senha ---------------- */
+$("btn-show-change-pass").addEventListener("click", () => {
+  $("cp-current").value = "";
+  $("cp-new").value = "";
+  hideError("change-pass-error");
+  $("change-pass-box").classList.remove("hidden");
+});
+$("btn-cancel-change-pass").addEventListener("click", () => {
+  $("change-pass-box").classList.add("hidden");
+});
+$("btn-confirm-change-pass").addEventListener("click", async () => {
+  const btn = $("btn-confirm-change-pass");
+  hideError("change-pass-error");
+  btn.disabled = true;
+  btn.textContent = "Salvando…";
+  try {
+    await api("/profile/password", {
+      method: "POST",
+      body: { current_password: $("cp-current").value, new_password: $("cp-new").value },
+    });
+    $("change-pass-box").classList.add("hidden");
+    toast("Senha alterada!", "ok");
+  } catch (e) {
+    showError("change-pass-error", e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Salvar nova senha";
+  }
+});
+
 /* ---------------- Boot ---------------- */
 async function boot() {
   const me = await api("/me");
@@ -425,7 +473,10 @@ async function refreshSpots() {
   if (!state.currentPos) return;
   const hadCards = $("feed").querySelectorAll(".feed-card").length > 0;
   if (!hadCards) {
-    $("feed").innerHTML = `<div class="feed-card" style="cursor:default;opacity:.75">Buscando lugares perto de você…</div>`;
+    $("feed").innerHTML = `
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>
+      <div class="skeleton-card"></div>`;
   }
   state.spots = [];
   state.offset = 0;
@@ -472,6 +523,26 @@ function renderRadiusHint() {
   $("radius-hint").textContent = total
     ? `${near.length}/${total} lugares desbloqueados (raio ${state.radius}m)`
     : "";
+  renderRadiusCircle();
+}
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#31c46e";
+}
+
+function renderRadiusCircle() {
+  if (!state.map) return;
+  if (state.radiusCircle) state.radiusCircle.remove();
+  if (!state.currentPos) return;
+  const ok = cssVar("--ok");
+  state.radiusCircle = L.circle([state.currentPos.lat, state.currentPos.lng], {
+    radius: state.radius,
+    color: ok,
+    fillColor: ok,
+    fillOpacity: 0.08,
+    weight: 1.5,
+    interactive: false,
+  }).addTo(state.map);
 }
 
 function renderMapMarkers() {
@@ -552,7 +623,18 @@ function renderFeed() {
     lm.textContent = "Carregar mais lugares";
     lm.addEventListener("click", loadMore);
     feed.appendChild(lm);
+    observeLoadMore(lm);
   }
+}
+
+let _feedObserver = null;
+function observeLoadMore(el) {
+  if (_feedObserver) _feedObserver.disconnect();
+  if (!("IntersectionObserver" in window)) return;
+  _feedObserver = new IntersectionObserver((entries) => {
+    if (entries.some((en) => en.isIntersecting)) loadMore();
+  }, { root: $("feed"), rootMargin: "100px" });
+  _feedObserver.observe(el);
 }
 
 function fmtDistance(m) {
@@ -623,7 +705,7 @@ async function showSpotModal(spot) {
         return `<div class="comment">
           <button class="link-author" data-user="${esc(c.author)}">@${esc(c.author)}</button>
           ${esc(c.text)}
-          <span class="c-time">${fmtDate(c.created_at)}</span>
+          <span class="c-time">${timeAgo(c.created_at)}</span>
           ${mine ? `<button class="c-del" data-id="${c.id}" title="Excluir comentário">✕</button>` : ""}
         </div>`;
       }).join("")
@@ -720,6 +802,14 @@ $("btn-share").addEventListener("click", async () => {
   const id = state.selectedSpotId;
   if (!id) return;
   const url = location.origin + "/#spot=" + id;
+  const spot = state.spots.find((s) => s.id === id);
+  const title = spot ? spot.name : "NearGram";
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text: `Abra "${title}" no NearGram 📍`, url });
+      return;
+    } catch (e) { /* usuário cancelou ou falhou */ }
+  }
   try {
     await navigator.clipboard.writeText(url);
     toast("Link copiado para a área de transferência", "ok");
@@ -864,6 +954,13 @@ async function runSearch() {
 }
 $("btn-search-go").addEventListener("click", runSearch);
 $("search-input").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+let _searchTimer = null;
+$("search-input").addEventListener("input", () => {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => {
+    if ($("search-input").value.trim()) runSearch();
+  }, 400);
+});
 
 /* ---------------- Notifications ---------------- */
 async function loadNotifications() {
@@ -885,7 +982,7 @@ $("btn-notifs").addEventListener("click", async () => {
       const div = document.createElement("div");
       div.className = "notif" + (n.read ? "" : " unread");
       div.innerHTML = `
-        <div class="notif-head"><span class="notif-actor">@${esc(n.actor)}</span><span class="notif-time">${fmtDate(n.created_at)}</span></div>
+        <div class="notif-head"><span class="notif-actor">@${esc(n.actor)}</span><span class="notif-time">${timeAgo(n.created_at)}</span></div>
         <div class="notif-text">${esc(n.type === "follow" ? "começou a seguir você" : n.text || "")}</div>
         ${n.spot_id ? `<button class="notif-goto" data-spot="${n.spot_id}">Ver lugar</button>` : ""}`;
       const go = div.querySelector(".notif-goto");
@@ -1008,6 +1105,21 @@ function fmtDate(s) {
   return isNaN(d) ? s : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+function timeAgo(s) {
+  if (!s) return "";
+  const d = new Date(s + "Z");
+  if (isNaN(d)) return s;
+  const sec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (sec < 60) return "agora";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} min`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} h`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day} d`;
+  return fmtDate(s);
+}
+
 $("btn-locate").addEventListener("click", () => {
   if (state.currentPos) {
     state.map.setView([state.currentPos.lat, state.currentPos.lng], 15);
@@ -1034,6 +1146,22 @@ boot().catch((err) => {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register("/sw.js").then((reg) => {
+      reg.addEventListener("updatefound", () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener("statechange", () => {
+          if (nw.state === "installed" && navigator.serviceWorker.controller) {
+            toastAction("Nova versão disponível 🚀", "Atualizar", () => nw.postMessage({ type: "SKIP_WAITING" }));
+          }
+        });
+      });
+    }).catch(() => {});
   });
 }

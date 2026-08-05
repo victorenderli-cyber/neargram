@@ -228,6 +228,16 @@ def _columns(conn, table):
     return {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
+def indices():
+    return [
+        "CREATE INDEX IF NOT EXISTS idx_spots_user ON spots (user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_spots_latlng ON spots (lat, lng)",
+        "CREATE INDEX IF NOT EXISTS idx_likes_spot ON likes (spot_id)",
+        "CREATE INDEX IF NOT EXISTS idx_comments_spot ON comments (spot_id)",
+        "CREATE INDEX IF NOT EXISTS idx_notifs_user ON notifications (user_id, read)",
+    ]
+
+
 def migrate():
     conn = connect()
     cols = _columns(conn, "users")
@@ -235,6 +245,11 @@ def migrate():
         execute(conn, "ALTER TABLE users ADD COLUMN bio TEXT NOT NULL DEFAULT ''")
     if "avatar" not in cols:
         execute(conn, "ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
+    for stmt in indices():
+        try:
+            execute(conn, stmt)
+        except Exception:
+            conn.rollback()
     conn.commit()
     conn.close()
 

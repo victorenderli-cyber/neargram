@@ -463,6 +463,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_profile()
             elif method == "POST" and path == "/api/profile":
                 self.api_update_profile()
+            elif method == "POST" and path == "/api/profile/password":
+                self.api_change_password()
             elif method == "GET" and path == "/api/search":
                 self.api_search(query)
             elif method == "GET" and path == "/api/notifications":
@@ -550,6 +552,24 @@ class Handler(BaseHTTPRequestHandler):
         row = db.execute(conn, "SELECT username, bio, avatar FROM users WHERE id = ?", (user["id"],)).fetchone()
         conn.close()
         self._send(200, {"username": row["username"], "bio": row["bio"] or "", "avatar": row["avatar"] or ""})
+
+    def api_change_password(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        data = self._read_json()
+        current = data.get("current_password") or ""
+        new_password = data.get("new_password") or ""
+        if not verify_password(current, user["password_hash"]):
+            raise ValueError("senha atual incorreta")
+        if len(new_password) < 4:
+            raise ValueError("nova senha deve ter pelo menos 4 caracteres")
+        conn = db.connect()
+        db.execute(conn, "UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(new_password), user["id"]))
+        conn.commit()
+        conn.close()
+        self._send(200, {"ok": True})
 
     def api_profile(self):
         user = get_user_by_token(self._get_token())

@@ -33,16 +33,18 @@
 - Distância calculada em tempo real (fórmula de Haversine).
 
 ### Descoberta e interação
-- Mapa Leaflet + OpenStreetMap com **clusters** (marcadores agrupados por proximidade) e marcadores (⬤ você, 🔒 bloqueado, foto desbloqueada).
-- Feed de lugares com foto, autor, curtidas, comentários e distância — **paginado** com botão "Carregar mais lugares" (`limit`+`offset`+`has_more`).
+- Mapa Leaflet + OpenStreetMap com **clusters** (marcadores agrupados por proximidade), **círculo do raio de desbloqueio** ao redor da sua posição e marcadores (⬤ você, 🔒 bloqueado, foto desbloqueada).
+- Feed de lugares com foto, autor, curtidas, comentários e distância — **paginado** com botão "Carregar mais lugares" **e autoload** ao rolar (`limit`+`offset`+`has_more`).
 - **Curtir** / descurtir e **comentar** fotos desbloqueadas (autor do comentário ou do spot podem **excluir comentários**).
-- Autor pode **editar** nome, descrição e raio de desbloqueio das próprias fotos, e **excluir a própria conta** (com confirmação de senha).
-- **Busca ordenada por proximidade** quando lat/lng informados.
+- Autor pode **editar** nome, descrição e raio de desbloqueio das próprias fotos, **excluir a própria conta** (com confirmação de senha) e **alterar a senha**.
+- **Busca com debounce** (resultados enquanto digita) **ordenada por proximidade** quando lat/lng informados.
 - Dois modos de posicionamento: **GPS real** e **simulação** (clique no mapa).
 
 ### PWA (instalável)
 - `manifest.json`, service worker com cache offline (só o shell; API/tiles não são cacheados).
 - **Botão "Instalar"** no app (`beforeinstallprompt`) para instalar como app no Android (Chrome) e iOS (Safari → Adicionar à Tela de Início).
+- **Aviso de nova versão**: ao detectar service worker novo, o app mostra um toast "Nova versão disponível" com botão **Atualizar** (recarrega na hora).
+- **`theme-color` dinâmico** que acompanha o tema claro/escuro.
 - **Web Push** (opt-in): notificações nativas de curtida/comentário/follow (VAPID; requer `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` no ambiente).
 
 ### Performance e robustez
@@ -50,9 +52,11 @@
 - **gzip** automático em JSON e estáticos (quando o cliente aceita `Accept-Encoding: gzip`).
 - **Cabeçalhos de segurança**: CSP, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`.
 - **Storage externo opt-in**: se `CLOUDINARY_CLOUD_NAME` + `CLOUDINARY_UPLOAD_PRESET` estiverem configurados, as fotos vão para o Cloudinary (URL salva; redirect 302 na entrega); senão, mantém base64 no banco.
-- **Feed ordenado por proximidade** (desbloqueadas primeiro, depois por distância), **paginação** com `has_more` e **polling** de notificações (badge atualiza a cada 30 s).
+- **Índices no banco** (`spots(user_id)`, `spots(lat,lng)`, `likes(spot_id)`, `comments(spot_id)`, `notifications(user_id,read)`) para consultas rápidas.
+- **Feed ordenado por proximidade** (desbloqueadas primeiro, depois por distância), **paginação** com `has_more`, **autoload** ao rolar e **polling** de notificações (badge a cada 30 s).
 - **Pooling de conexões Postgres** (psycopg2 `ThreadedConnectionPool`, 1–20 conexões) — sem abrir conexão nova a cada requisição.
 - **Logs estruturados em JSON** (acesso + erros com timestamp UTC) para facilitar depuração em produção.
+- **Skeleton loading** no feed e **toasts** com ação (ex.: atualizar app).
 
 ---
 
@@ -142,6 +146,7 @@ Relacionamentos: `spots`, `sessions`, `likes`, `comments`, `follows`, `notificat
 | GET | `/api/me` | Usuário atual (ou `null`) | — |
 | GET | `/api/profile` | Stats + fotos do usuário | cookie |
 | POST | `/api/profile` | Atualiza bio/avatar | cookie |
+| POST | `/api/profile/password` | Altera a senha (exige senha atual) | cookie |
 | GET | `/api/search?q=&lat=&lng=` | Busca usuários e lugares | — |
 | GET | `/api/notifications` | Notificações + contagem de não-lidas | cookie |
 | POST | `/api/notifications/read` | Marca todas como lidas | cookie |
@@ -197,6 +202,7 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 - **Domínio próprio ativo:** <https://neargram.duckdns.org> (site, PWA, API e SSL verificados — `200`).
 - Última correção em produção: **endurecimento da tela preta** — limpeza de cache do service worker (`v2`), erro de boot visível (overlay `#fatal`) e fallback se `app.js` não carregar.
 - **Melhorias aplicadas (a publicar):** paginação do feed (`has_more`), clusters no mapa, busca ordenada por proximidade, editar spot, excluir comentário, excluir conta, toasts, progresso de upload, botão instalar PWA, log estruturado JSON e pooling Postgres (SW v6, 23 testes).
+- **Últimas melhorias (a publicar):** círculo do raio de desbloqueio no mapa, autoload do feed, busca com debounce, compartilhar via Web Share API, alterar senha, aviso de nova versão do app (SW v7), skeleton loading, tempo relativo em comentários/notificações, índices no banco e `theme-color` dinâmico.
 
 ---
 
@@ -216,7 +222,8 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `7fa64c8` | Corrige bug crítico: prefixo `/api` duplicado em app.js (404 → tela preta). SW v3 |
 | `31d621b` | **Novas funcionalidades:** seguidores/follow + feed "Seguindo", busca, notificações, bio+avatar, compartilhar link, denúncia, modo claro/escuro. Fix: botão curtir (span `like-count` era destruído). SW v4. 15 testes |
 | `89be1f3` | **Melhorias:** compressão de imagem no cliente, gzip, cabeçalhos de segurança (CSP), feed ordenado por proximidade, polling de notificações, Web Push opt-in (VAPID), storage Cloudinary opt-in, `tools/gen_vapid.py`. SW v5. 19 testes |
-| *(atual)* | **Melhorias:** paginação do feed (`limit`/`offset`/`has_more` + "Carregar mais"), clusters no mapa (markercluster local), busca ordenada por proximidade, editar spot (PATCH), excluir comentário (DELETE), excluir conta (DELETE `/api/me`), toasts, progresso de upload, botão instalar PWA, log estruturado JSON, pooling Postgres. SW v6. 23 testes |
+| `5f51ed6` | **Melhorias:** paginação do feed (`limit`/`offset`/`has_more` + "Carregar mais"), clusters no mapa (markercluster local), busca ordenada por proximidade, editar spot (PATCH), excluir comentário (DELETE), excluir conta (DELETE `/api/me`), toasts, progresso de upload, botão instalar PWA, log estruturado JSON, pooling Postgres. SW v6. 23 testes |
+| *(atual)* | **Melhorias:** círculo do raio de desbloqueio no mapa, autoload do feed, busca com debounce, Web Share API, alterar senha (`POST /api/profile/password`), aviso de nova versão (SW v7), skeleton loading, tempo relativo, índices no banco, `theme-color` dinâmico. 24 testes |
 
 ---
 
@@ -231,18 +238,18 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 - Domínio próprio **`neargram.duckdns.org`** configurado e funcionando (A record + Custom Domain no Render).
 - Endurecimento da tela preta (erro de boot visível, cache SW v2, fallback `app.js`).
 - **Endurecimento do backend (avaliação):** rate limiting em login/registro (429), expiração de sessões (30 dias) + `Max-Age` no cookie, 500 sem vazar detalhes internos, logs de requisição habilitados, consultas em lote (fim do N+1), paginação (`limit`) em `/api/spots`.
-- **Testes automatizados:** `tests/test_api.py` (23 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit, bio/avatar, follow, notificações, feed "seguindo", denúncia, busca, **gzip/security headers, ordenação por proximidade, push subscribe, paginação, editar spot, excluir comentário, excluir conta**.
+- **Testes automatizados:** `tests/test_api.py` (24 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit, bio/avatar, follow, notificações, feed "seguindo", denúncia, busca, **gzip/security headers, ordenação por proximidade, push subscribe, paginação, editar spot, excluir comentário, excluir conta, alterar senha**.
 - **Redes sociais:** seguidores/follow, perfil público, feed "Seguindo", notificações de curtida/comentário/follow, busca de lugares e usuários.
-- **Perfil rico:** bio e foto de avatar (upload), stats de seguidores/seguindo.
+- **Perfil rico:** bio e foto de avatar (upload), stats de seguidores/seguindo, **alteração de senha**.
 - **Gestão de conteúdo:** editar spot (nome/descrição/raio), excluir comentário (autor ou dono do spot), excluir conta com confirmação de senha.
-- **Compartilhamento e moderação:** link direto do lugar (`#spot=ID`) e denúncia de conteúdo impróprio.
-- **UX:** modo claro/escuro persistente, fix do botão curtir no modal do spot, feed ordenado por proximidade, **paginação com "Carregar mais"**, **toasts**, **progresso ao publicar/salvar/excluir**, loading do feed e polling de notificações.
-- **Mapa:** **clusters** de marcadores (markercluster servido localmente, sem CDN).
-- **Performance:** compressão de imagem no cliente (canvas), gzip em respostas JSON/estáticas, **pooling de conexões Postgres**.
+- **Compartilhamento e moderação:** link direto do lugar (`#spot=ID`), **Web Share API** (fallback clipboard) e denúncia de conteúdo impróprio.
+- **UX:** modo claro/escuro persistente (**`theme-color` dinâmico**), fix do botão curtir no modal do spot, feed ordenado por proximidade, **paginação com "Carregar mais" + autoload**, **toasts (inclusive com ação)**, **skeleton loading**, **tempo relativo** em comentários/notificações, **busca com debounce**, progresso ao publicar/salvar/excluir, loading do feed e polling de notificações.
+- **Mapa:** **clusters** de marcadores (markercluster servido localmente, sem CDN) e **círculo do raio de desbloqueio**.
+- **Performance:** compressão de imagem no cliente (canvas), gzip em respostas JSON/estáticas, **pooling de conexões Postgres** e **índices** nas tabelas mais consultadas.
 - **Observabilidade:** **logs estruturados JSON** (acesso + erros com timestamp UTC).
 - **Segurança:** CSP + `nosniff`/`X-Frame-Options`/`Referrer-Policy`/`Permissions-Policy`.
 - **Push (código pronto, precisa das env VAPID):** assinatura no cliente, endpoints `/api/push/*`, envio de curtida/comentário/follow e handlers `push`/`notificationclick` no service worker.
-- **Instalação PWA:** botão "Instalar" (`beforeinstallprompt`).
+- **Instalação PWA:** botão "Instalar" (`beforeinstallprompt`) e **aviso de nova versão** com recarga automática.
 
 ---
 
