@@ -17,20 +17,12 @@ services:
           property: internalConnectionString
       - key: PYTHON_VERSION
         value: 3.12.4
-  - type: one-off-job
-    name: seed-bots
-    runtime: python
-    plan: free
-    region: oregon
-    branch: main
-    buildCommand: ""
-    startCommand: python generate_bots.py --count 120 --password botpass
-    pythonVersion: 3.12.4
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: neargram-db
-          property: internalConnectionString
+      - key: SEED_BOTS
+        value: "1"
+      - key: SEED_BOTS_COUNT
+        value: "120"
+      - key: BOT_PASSWORD
+        value: "botpass"
 
 databases:
   - name: neargram-db

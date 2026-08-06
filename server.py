@@ -1448,11 +1448,36 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     db.init()
+    if os.environ.get("SEED_BOTS"):
+        _seed_bots_on_start()
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"NearGram rodando em http://{host}:{port} (db: {'postgres' if db.PG else 'sqlite'})")
     server.serve_forever()
+
+
+def _seed_bots_on_start():
+    """Popula o banco (quando em Postgres) com bots realistas, no boot, apenas se ainda vazio."""
+    if not db.PG:
+        print("SEED_BOTS ignorado (não está em Postgres).")
+        return
+    try:
+        conn = db.connect()
+        try:
+            n = db.execute(conn, "SELECT COUNT(*) c FROM users").fetchone()["c"]
+        finally:
+            conn.close()
+        if int(n) > 0:
+            print(f"SEED_BOTS ignorado: banco já tem {n} usuário(s).")
+            return
+        import generate_bots as gb
+        gen = gb.BotGenerator(password=os.environ.get("BOT_PASSWORD", "botpass"))
+        gen.run(count=int(os.environ.get("SEED_BOTS_COUNT", "120")))
+        print("Seed de bots concluído.")
+    except Exception as e:
+        print(f"Falha no seed de bots: {e}")
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
