@@ -19,7 +19,7 @@ services:
         value: 3.12.4
       - key: SEED_BOTS
         value: "1"
-      - key: SEED_BOTS_COUNT
+      - key: SEED_BOTS_TARGET
         value: "120"
       - key: BOT_PASSWORD
         value: "botpass"

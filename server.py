@@ -1465,15 +1465,18 @@ def _seed_bots_on_start():
     try:
         conn = db.connect()
         try:
-            n = db.execute(conn, "SELECT COUNT(*) c FROM users").fetchone()["c"]
+            bots = db.execute(
+                conn, "SELECT COUNT(*) c FROM users WHERE avatar LIKE 'https://i.pravatar.cc%'"
+            ).fetchone()["c"]
         finally:
             conn.close()
-        if int(n) > 0:
-            print(f"SEED_BOTS ignorado: banco já tem {n} usuário(s).")
+        target = int(os.environ.get("SEED_BOTS_TARGET", "120"))
+        if int(bots) >= target:
+            print(f"SEED_BOTS ignorado: já existem {int(bots)} bot(s).")
             return
         import generate_bots as gb
         gen = gb.BotGenerator(password=os.environ.get("BOT_PASSWORD", "botpass"))
-        gen.run(count=int(os.environ.get("SEED_BOTS_COUNT", "120")))
+        gen.run(count=target - int(bots))
         print("Seed de bots concluído.")
     except Exception as e:
         print(f"Falha no seed de bots: {e}")
