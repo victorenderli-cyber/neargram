@@ -1448,8 +1448,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     db.init()
-    if os.environ.get("SEED_BOTS"):
-        _seed_bots_on_start()
+    _seed_bots_on_start()
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
     server = ThreadingHTTPServer((host, port), Handler)
@@ -1458,7 +1457,7 @@ def main():
 
 
 def _seed_bots_on_start():
-    """Popula o banco (quando em Postgres) com bots realistas, no boot, apenas se ainda vazio."""
+    """Popula o banco (quando em Postgres) com bots realistas, no boot, se estiver abaixo do alvo."""
     if not db.PG:
         print("SEED_BOTS ignorado (não está em Postgres).")
         return
