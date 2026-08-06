@@ -555,6 +555,23 @@ class ApiTestCase(unittest.TestCase):
                 blocked = True
         self.assertTrue(blocked)
 
+    def test_32_suggested_users(self):
+        c1 = self.register("user_sug_a")
+        c2 = self.register("user_sug_b")
+        status, _, _ = self.call("/api/spots", "POST", {
+            "name": "Spot da sugestao",
+            "lat": -22.9519,
+            "lng": -43.2105,
+            "status": "public",
+            "photo": PNG,
+            "radius_m": 500,
+        }, c2)
+        self.assertEqual(status, 201)
+        status, _, data = self.call("/api/users/suggested", cookie=c1)
+        self.assertEqual(status, 200)
+        self.assertIn("users", data)
+        self.assertTrue(any(u["username"] == "user_sug_b" for u in data["users"]))
+
 
 if __name__ == "__main__":
     unittest.main()

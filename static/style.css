@@ -607,3 +607,120 @@ html[data-theme="light"] select { border-color: #d5d5dd; background: #fff; }
 /* ---------- Toast com ação clicável ---------- */
 #toasts .toast { pointer-events: auto; }
 .toast.ok, .toast.err { display: flex; align-items: center; gap: 8px; }
+
+/* ---------- Sugestões de pessoas (Pessoas que talvez conheça) ---------- */
+.suggested-box {
+  background: var(--panel);
+  border: 1px solid #2a2a36;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.25);
+  transition: all .2s ease;
+}
+.suggested-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.suggested-head h3 {
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-sm-text {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.btn-sm-text:hover {
+  color: var(--text);
+  background: var(--panel2);
+}
+.suggested-carousel {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--panel2) transparent;
+}
+.suggested-carousel::-webkit-scrollbar { height: 6px; }
+.suggested-carousel::-webkit-scrollbar-thumb { background: var(--panel2); border-radius: 3px; }
+
+.suggested-card {
+  scroll-snap-align: start;
+  flex: 0 0 140px;
+  background: var(--panel2);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  transition: transform .18s ease, border-color .18s ease;
+}
+.suggested-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+}
+.suggested-card .avatar-md {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  cursor: pointer;
+}
+.suggested-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  cursor: pointer;
+}
+.suggested-name {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.suggested-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+.btn-follow-quick {
+  width: 100%;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--grad);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  transition: all .15s ease;
+}
+.btn-follow-quick.following {
+  background: var(--panel);
+  color: var(--ok);
+  border: 1px solid var(--ok);
+}
+html[data-theme="light"] .suggested-box {
+  background: #ffffff;
+  border-color: #e0e0e6;
+  box-shadow: 0 2px 10px rgba(0,0,0,.05);
+}
+html[data-theme="light"] .suggested-card {
+  background: #f4f4f8;
+  border-color: #e0e0e6;
+}

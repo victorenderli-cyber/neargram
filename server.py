@@ -481,6 +481,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_notifications()
             elif method == "POST" and path == "/api/notifications/read":
                 self.api_notifications_read()
+            elif method == "GET" and path == "/api/users/suggested":
+                self.api_users_suggested()
             elif method == "GET" and path.startswith("/api/users/"):
                 self.api_user_profile(query)
             elif method == "POST" and path.startswith("/api/users/") and path.endswith("/follow"):
@@ -1367,15 +1369,30 @@ class Handler(BaseHTTPRequestHandler):
             followed_ids = db.execute(conn, "SELECT followee_id FROM follows WHERE follower_id = ?", (user["id"],)).fetchall()
             followed = {row["followee_id"] for row in followed_ids}
             suggested = []
-            rows = db.execute(conn, """
-                SELECT u.id, u.username, u.avatar, u.bio, COUNT(s.id) as spot_count
-                FROM users u
-                LEFT JOIN spots s ON s.user_id = u.id
-                WHERE u.id != ? AND u.id NOT IN ({})
-                GROUP BY u.id, u.username, u.avatar, u.bio
-                ORDER BY spot_count DESC, u.username
-                LIMIT 20
-            """.format(",".join("?" for _ in followed)), (user["id"], *followed)).fetchall()
+            if followed:
+                placeholders = ",".join("?" for _ in followed)
+                sql = f"""
+                    SELECT u.id, u.username, u.avatar, u.bio, COUNT(s.id) as spot_count
+                    FROM users u
+                    LEFT JOIN spots s ON s.user_id = u.id
+                    WHERE u.id != ? AND u.id NOT IN ({placeholders})
+                    GROUP BY u.id, u.username, u.avatar, u.bio
+                    ORDER BY spot_count DESC, u.username
+                    LIMIT 20
+                """
+                params = (user["id"], *followed)
+            else:
+                sql = """
+                    SELECT u.id, u.username, u.avatar, u.bio, COUNT(s.id) as spot_count
+                    FROM users u
+                    LEFT JOIN spots s ON s.user_id = u.id
+                    WHERE u.id != ?
+                    GROUP BY u.id, u.username, u.avatar, u.bio
+                    ORDER BY spot_count DESC, u.username
+                    LIMIT 20
+                """
+                params = (user["id"],)
+            rows = db.execute(conn, sql, params).fetchall()
             for r in rows:
                 suggested.append({
                     "id": r["id"],
@@ -1388,6 +1405,45 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"users": suggested})
         finally:
             conn.close()
+
+    def serve_static(self, path):
+        if path == "/":
+            path = "/index.html"
+        full = os.path.normpath(os.path.join(STATIC_DIR, path.lstrip("/")))
+        if not full.startswith(os.path.normpath(STATIC_DIR)):
+            self._send(403, b"forbidden", "text/plain")
+            return
+        if not os.path.isfile(full):
+            self._send(404, b"not found", "text/plain")
+            return
+        ext = os.path.splitext(full)[1].lower()
+        mime = {
+            ".html": "text/html; charset=utf-8",
+            ".css": "text/css; charset=utf-8",
+            ".js": "application/javascript; charset=utf-8",
+            ".json": "application/json; charset=utf-8",
+            ".webmanifest": "application/manifest+json; charset=utf-8",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".svg": "image/svg+xml",
+            ".webp": "image/webp",
+        }.get(ext, "application/octet-stream")
+        with open(full, "rb") as f:
+            body = f.read()
+        body, encoding = self._gzip_if_possible(body, mime)
+        cache = "no-cache" if ext in (".html", ".json", ".webmanifest") else "public, max-age=86400"
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(body)))
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Cache-Control", cache)
+        self._security_headers()
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def main():

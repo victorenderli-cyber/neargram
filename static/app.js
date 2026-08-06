@@ -516,6 +516,7 @@ function showApp() {
   $("username-label").textContent = "@" + state.user.username;
   setAvatar("avatar-nav", state.user.avatar);
   loadNotifications();
+  loadSuggestedUsers();
   if (!state._notifTimer) {
     state._notifTimer = setInterval(loadNotifications, 30000);
   }
@@ -1230,6 +1231,54 @@ $("btn-notifs").addEventListener("click", async () => {
     alert(e.message);
   }
 });
+
+/* ---------------- Sugestões de pessoas ---------------- */
+async function loadSuggestedUsers() {
+  const section = $("suggested-users-section");
+  const list = $("suggested-users-list");
+  if (!section || !list || !state.user) return;
+  try {
+    const d = await api("/users/suggested");
+    if (!d.users || !d.users.length) {
+      section.classList.add("hidden");
+      return;
+    }
+    section.classList.remove("hidden");
+    list.innerHTML = "";
+    d.users.forEach((u) => {
+      const card = document.createElement("div");
+      card.className = "suggested-card";
+      card.innerHTML = `
+        ${u.avatar ? `<img class="avatar-md" src="${u.avatar}" alt="" />` : `<span class="avatar-md no-avatar"></span>`}
+        <div class="suggested-info">
+          <span class="suggested-name">@${esc(u.username)}</span>
+          <small class="suggested-meta">${u.spot_count} ${u.spot_count === 1 ? "foto" : "fotos"}</small>
+        </div>
+        <button class="btn-sm btn-follow-quick" data-id="${u.id}">${u.is_following ? "✓" : "+ Seguir"}</button>
+      `;
+      card.querySelector(".suggested-info")?.addEventListener("click", () => openUserProfile(u.username));
+      card.querySelector(".avatar-md")?.addEventListener("click", () => openUserProfile(u.username));
+      card.querySelector(".btn-follow-quick")?.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const btn = e.currentTarget;
+        try {
+          const res = await api(`/users/${u.id}/follow`, { method: "POST", body: {} });
+          btn.textContent = res.following ? "✓" : "+ Seguir";
+          btn.classList.toggle("following", res.following);
+          toast(res.following ? `Agora você segue @${u.username}` : `Deixou de seguir @${u.username}`);
+          if (state.feedMode === "following") refreshSpots();
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      });
+      list.appendChild(card);
+    });
+  } catch (e) {
+    section.classList.add("hidden");
+  }
+}
+
+$("btn-refresh-suggested")?.addEventListener("click", loadSuggestedUsers);
 
 /* ---------------- Public user profile & follow ---------------- */
 async function openUserProfile(username) {
