@@ -203,6 +203,7 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 - Última correção em produção: **endurecimento da tela preta** — limpeza de cache do service worker (`v2`), erro de boot visível (overlay `#fatal`) e fallback se `app.js` não carregar.
 - **Melhorias a publicar (SW v12, 31 testes):** telemetria transparente e consentida (eventos de uso, dados do dispositivo e localização aproximada de desenvolvimento), aviso/bandeira de consentimento no auth-perfil, toggle para controlar, backend `/api/telemetry/consent` e `/api/telemetry` com rate limit por IP, métricas de uso rastreadas no app.js (like, comment, publish, follow, search, theme, install, map_layer, consent_granted, etc.).
 - **A publicar (SW v13, 32 testes):** "Pessoas que talvez conheça" (sugestões de usuários para seguir via `/api/users/suggested`, com filtro de quem você já segue e ordenação por nº de lugares), carrossel de sugestões com botão de seguir rápido, script `generate_bots.py` para popular o app com usuários/spots/follows realistas em todo o mundo.
+- **Bots realistas (a publicar):** `generate_bots.py` agora cria bots que parecem usuários comuns — avatar de pessoa real (pravatar.cc), username `nome_sobrenome_digitos`, bio variada, e **fotos reais de paisagens do lugar específico** (LoremFlickr com palavra-chave do ponto turístico da cidade: ex. Cristovo Redentor no Rio, Torre Eiffel em Paris, Ópera de Sydney). CSP `img-src` ampliado com `i.pravatar.cc` e `*.loremflickr.com`.
 
 ---
 
