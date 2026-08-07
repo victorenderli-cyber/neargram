@@ -78,6 +78,7 @@
     <div id="statusbar">
     <span id="mode-label" class="pill" data-i18n="locating">Buscando sua posição…</span>
     <span id="pos-info"></span>
+    <button id="btn-share-loc" class="btn-sm-text" title="Compartilhar minha localização">📍 Compartilhar</button>
     <div id="radius-hint"></div>
   </div>
 
@@ -164,6 +165,7 @@
     <p id="spot-desc"></p>
     <div class="spot-actions">
       <button id="btn-like" class="btn-like">♥ <span id="like-label">Curtir</span> <span id="like-count">0</span></button>
+      <button id="btn-save" class="btn-like" title="Salvar lugar">🔖 <span id="save-label">Salvar</span></button>
       <span id="spot-distance"></span>
       <button id="btn-goto-map" title="Ver no mapa">🗺️</button>
       <button id="btn-share" title="Compartilhar link">🔗</button>
@@ -232,10 +234,12 @@
     <div class="profile-tabs">
       <button id="tab-my-spots" class="profile-tab active" data-i18n="photos">Fotos</button>
       <button id="tab-my-liked" class="profile-tab" data-i18n="liked">Curtidos</button>
+      <button id="tab-my-saved" class="profile-tab" data-i18n="saved">Salvos</button>
     </div>
     <div id="profile-spots" class="profile-grid"></div>
     <p id="profile-empty" class="hint">Você ainda não publicou nenhuma foto. Toque em <b>＋ Nova foto</b> no mapa!</p>
     <p id="profile-liked-empty" class="hint hidden">Você ainda não curtiu nenhum lugar. Toque em ❤ nos lugares que gostou!</p>
+    <p id="profile-saved-empty" class="hint hidden">Você ainda não salvou nenhum lugar. Use 🔖 Salvar nos lugares que quer visitar!</p>
     <div class="change-pass">
       <button id="btn-show-change-pass" class="btn-primary">🔑 Alterar senha</button>
       <div id="change-pass-box" class="hidden">

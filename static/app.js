@@ -38,6 +38,7 @@ const I18N = {
     ranking: "🏆 Ranking",
     photos: "Fotos",
     liked: "Curtidos",
+    saved: "Salvos",
     "btn-profile": "Perfil",
     logout: "Sair",
     search: "🔍 Buscar",
@@ -60,6 +61,7 @@ const I18N = {
     ranking: "🏆 Ranking",
     photos: "Photos",
     liked: "Liked",
+    saved: "Saved",
     "btn-profile": "Profile",
     logout: "Log out",
     search: "🔍 Search",
@@ -479,6 +481,7 @@ async function openOwnProfile() {
     renderProfileGrid("profile-spots", "profile-empty", p.spots, true);
     state.mySpots = p.spots || [];
     state.myLiked = p.liked_spots || [];
+    state.mySaved = p.saved_spots || [];
     const likedEmpty = $("profile-liked-empty");
     if (likedEmpty) likedEmpty.classList.toggle("hidden", state.myLiked.length > 0);
     $("profile-edit").classList.add("hidden");
@@ -493,20 +496,23 @@ $("btn-profile").addEventListener("click", openOwnProfile);
 
 $("tab-my-spots").addEventListener("click", () => setProfileTab("spots"));
 $("tab-my-liked").addEventListener("click", () => setProfileTab("liked"));
+$("tab-my-saved").addEventListener("click", () => setProfileTab("saved"));
 
 function setProfileTab(tab) {
   const spots = tab === "spots";
   $("tab-my-spots").classList.toggle("active", spots);
-  $("tab-my-liked").classList.toggle("active", !spots);
+  $("tab-my-liked").classList.toggle("active", tab === "liked");
+  $("tab-my-saved").classList.toggle("active", tab === "saved");
   $("profile-empty").classList.toggle("hidden", spots);
-  $("profile-liked-empty").classList.toggle("hidden", !spots);
-  if (spots) {
-    renderProfileGrid("profile-spots", "profile-empty", state.mySpots || [], true);
-    $("profile-empty").classList.toggle("hidden", (state.mySpots || []).length > 0);
-  } else {
-    renderProfileGrid("profile-spots", "profile-liked-empty", state.myLiked || [], false);
-    $("profile-liked-empty").classList.toggle("hidden", (state.myLiked || []).length > 0);
-  }
+  $("profile-liked-empty").classList.toggle("hidden", tab !== "liked");
+  $("profile-saved-empty").classList.toggle("hidden", tab !== "saved");
+  let list = [];
+  if (tab === "spots") list = state.mySpots || [];
+  else if (tab === "liked") list = state.myLiked || [];
+  else list = state.mySaved || [];
+  renderProfileGrid("profile-spots", tab === "liked" ? "profile-liked-empty" : tab === "saved" ? "profile-saved-empty" : "profile-empty", list, tab === "spots");
+  $("profile-liked-empty").classList.toggle("hidden", tab !== "liked" || list.length > 0);
+  $("profile-saved-empty").classList.toggle("hidden", tab !== "saved" || list.length > 0);
 }
 
 $("btn-edit-profile").addEventListener("click", () => {
@@ -925,6 +931,7 @@ function popupHtml(s) {
     ? `<img class="popup-thumb" src="${s.photo}" alt="${esc(s.name)}" />`
     : `<div class="popup-thumb locked">🔒</div>`;
   const dist = s.distance_m == null ? "" : ` · ${fmtDistance(s.distance_m)}`;
+  const featured = s.featured ? `<span class="popup-featured" title="Lugar em destaque">⭐ Destaque</span>` : "";
   const status = unlocked
     ? `<span class="popup-status ok">✓ Desbloqueada</span>`
     : `<span class="popup-status">🔒 Fechada</span>`;
@@ -934,7 +941,7 @@ function popupHtml(s) {
       <div class="popup-info">
         <b>${esc(s.name)}</b>
         <div class="popup-sub">@${esc(s.author)}${dist}</div>
-        <div>${status}</div>
+        <div>${featured} ${status}</div>
         <button class="popup-open btn-primary" data-id="${s.id}">Ver detalhes</button>
       </div>
     </div>`;
@@ -970,10 +977,27 @@ function renderFeed() {
   $("feed-count").textContent = `(${state.spots.length})`;
   if (!state.spots.length) {
     feed.innerHTML = state.feedMode === "following"
-      ? `<div class="feed-card" style="cursor:default">Você ainda não segue ninguém com fotos perto daqui. <button class="link-author" data-user="" id="empty-search-link">Buscar pessoas</button></div>`
-      : `<div class="feed-card" style="cursor:default">Nenhum lugar aqui ainda. Toque em <b>＋ Nova foto</b> para ser o primeiro! 📸</div>`;
+      ? `<div class="feed-card empty-card">
+          <div class="empty-emoji">👥</div>
+          <div class="empty-title">Você ainda não segue ninguém com fotos perto daqui</div>
+          <p class="empty-sub">Busque pessoas com lugares interessantes e siga para ver o feed delas.</p>
+          <button class="btn-primary" id="empty-search-link">Buscar pessoas</button>
+        </div>`
+      : `<div class="feed-card empty-card">
+          <div class="empty-emoji">📸</div>
+          <div class="empty-title">Nenhum lugar aqui ainda</div>
+          <p class="empty-sub">Seja a primeira pessoa a registrar um lugar! Ou use <b>🌍 Explorar</b> para ver lugares de outras regiões do mundo.</p>
+          <div class="empty-actions">
+            <button class="btn-primary" id="empty-new-link">＋ Nova foto</button>
+            <button class="btn-secondary" id="empty-explore-link">🌍 Explorar</button>
+          </div>
+        </div>`;
     const link = $("empty-search-link");
     if (link) link.addEventListener("click", () => showModal("modal-search"));
+    const nl = $("empty-new-link");
+    if (nl) nl.addEventListener("click", () => openNewModal());
+    const el = $("empty-explore-link");
+    if (el) el.addEventListener("click", () => $("explore-select")?.focus());
     return;
   }
   state.spots.forEach((s, idx) => {
@@ -996,7 +1020,7 @@ function renderFeed() {
       <div class="fc-top">
         ${imgHtml}
         <div style="flex:1">
-          <div class="fc-name">${esc(s.name)}</div>
+          <div class="fc-name">${esc(s.name)}${s.featured ? ' <span class="fc-star" title="Lugar em destaque">⭐</span>' : ""}</div>
           <div class="fc-meta"><button class="link-author" data-user="${esc(s.author)}">${authorAvatar}@${esc(s.author)}</button> · ${s.comments.length} comentários</div>
           ${dist}
         </div>
@@ -1105,6 +1129,10 @@ async function showSpotModal(spot) {
   $("like-count").textContent = spot.like_count;
   likeBtn.classList.toggle("liked", spot.liked);
 
+  const saveBtn = $("btn-save");
+  $("save-label").textContent = spot.saved ? "Salvo" : "Salvar";
+  saveBtn.classList.toggle("liked", spot.saved);
+
   const delBtn = $("btn-delete-spot");
   delBtn.classList.toggle("hidden", !spot.mine);
   delBtn.onclick = () => deleteSpot(spot.id);
@@ -1184,6 +1212,17 @@ $("btn-like").addEventListener("click", async () => {
   loadNotifications();
 });
 
+$("btn-save").addEventListener("click", async () => {
+  if (!state.user) return showError("publish-error", "faça login");
+  const id = state.selectedSpotId;
+  const res = await api(`/spots/${id}/save`, { method: "POST", body: {} });
+  $("save-label").textContent = res.saved ? "Salvo" : "Salvar";
+  $("btn-save").classList.toggle("liked", res.saved);
+  const spot = (state.spots || []).find((s) => s.id === id);
+  if (spot) spot.saved = res.saved;
+  Telemetry.track("save_spot", { saved: !!res.saved, spot: id });
+});
+
 $("comment-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!state.user) return;
@@ -1261,6 +1300,19 @@ $("btn-share").addEventListener("click", async () => {
   } catch (e) {
     prompt("Copie o link:", url);
   }
+});
+
+$("btn-share-loc").addEventListener("click", async () => {
+  if (!state.currentPos) { toast("Aguarde sua posição ser detectada", "err"); return; }
+  const url = `${location.origin}/#loc=${state.currentPos.lat.toFixed(5)},${state.currentPos.lng.toFixed(5)}`;
+  const text = `📍 Veja onde estou no NearGram: ${state.currentPos.lat.toFixed(5)}, ${state.currentPos.lng.toFixed(5)}`;
+  if (navigator.share) {
+    try { await navigator.share({ title: "Minha localização no NearGram", text, url }); return; }
+    catch (e) {}
+  }
+  try { await navigator.clipboard.writeText(url); toast("Link da localização copiado", "ok"); }
+  catch (e) { prompt("Copie o link:", url); }
+  Telemetry.track("share_loc");
 });
 
 $("btn-report").addEventListener("click", () => {
@@ -1639,12 +1691,29 @@ function setFeed(mode) {
   refreshSpots();
 }
 
-/* ---------------- Deep link (#spot=ID) ---------------- */
+/* ---------------- Deep link (#spot=ID ou #loc=lat,lng) ---------------- */
 function handleDeepLink() {
   const params = new URLSearchParams(location.search);
   const action = params.get("action");
   if (action === "new") { openNewModal(); return; }
   if (action === "search") { showModal("modal-search"); return; }
+  const lm = location.hash.match(/^#loc=(-?[\d.]+),(-?[\d.]+)$/);
+  if (lm) {
+    const lat = parseFloat(lm[1]);
+    const lng = parseFloat(lm[2]);
+    const goLoc = () => {
+      if (!state.map) return false;
+      setPosition(lat, lng, true);
+      setModeLabel(`📍 Localização compartilhada: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+      toast("Mapa posicionado no local compartilhado", "ok");
+      return true;
+    };
+    if (!goLoc()) {
+      const iv = setInterval(() => { if (goLoc()) clearInterval(iv); }, 500);
+      setTimeout(() => clearInterval(iv), 20000);
+    }
+    return;
+  }
   const m = location.hash.match(/^#spot=(\d+)$/);
   if (!m) return;
   const id = parseInt(m[1], 10);

@@ -304,6 +304,8 @@ main {
 .popup-info { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .popup-sub { font-size: 12px; color: var(--muted); }
 .popup-status { font-size: 12px; color: var(--muted); }
+.popup-featured { font-size: 11px; font-weight: 700; color: #f5b301; }
+.fc-star { font-size: 13px; vertical-align: middle; }
 .popup-status.ok { color: var(--ok); font-weight: 700; }
 .popup-open { margin-top: 4px; font-size: 12px; padding: 6px 10px; }
 html[data-theme="light"] .popup-thumb { background: #ececf2; }
@@ -327,10 +329,29 @@ html[data-theme="light"] .leaflet-control-layers, html[data-theme="light"] .leaf
   color: var(--text) !important;
 }
 html[data-theme="light"] .leaflet-control-layers label { color: var(--text); }
+html[data-theme="light"] .leaflet-control-zoom a {
+  background: #fff !important; color: #333 !important;
+  border-color: #d5d5dd !important;
+}
+html[data-theme="light"] .leaflet-control-zoom a:hover { background: #f0f0f5 !important; }
+html[data-theme="light"] .leaflet-popup-content-wrapper, html[data-theme="light"] .leaflet-popup-tip {
+  background: #fff; color: var(--text); box-shadow: 0 6px 24px rgba(30,30,45,.16);
+}
+html[data-theme="light"] .popup-thumb { background: #ececf2; border: 1px solid #e0e0e6; }
+html[data-theme="light"] .marker-unlocked {
+  box-shadow: 0 2px 8px rgba(30,30,45,.25), 0 0 0 2px #fff;
+}
+html[data-theme="light"] .marker-you { box-shadow: 0 0 0 2px #fff; }
 
 /* ---------- Feed ---------- */
 #feed-section h2 { font-size: 15px; color: var(--muted); margin: 4px 0 12px; text-transform: uppercase; letter-spacing: 1px; }
 #feed { display: flex; flex-direction: column; gap: 12px; max-height: 62vh; overflow-y: auto; padding-right: 4px; }
+
+.empty-card { text-align: center; padding: 26px 18px; cursor: default !important; }
+.empty-card .empty-emoji { font-size: 34px; margin-bottom: 10px; }
+.empty-card .empty-title { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+.empty-card .empty-sub { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 14px; }
+.empty-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
 .feed-card {
   background: var(--panel);

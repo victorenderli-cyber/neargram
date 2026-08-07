@@ -28,6 +28,7 @@ RATE_LIMIT_WINDOW = 60
 TELEMETRY_RATE_MAX = 60
 DEFAULT_SPOT_LIMIT = 100
 MAX_SPOT_LIMIT = 500
+FEATURED_LIKES = 5
 
 GZIP_MIN_BYTES = 256
 CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME")
@@ -210,6 +211,15 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
             ):
                 liked_ids.add(row["spot_id"])
 
+        saved_ids = set()
+        if viewer_id:
+            for row in db.execute(
+                conn,
+                f"SELECT spot_id FROM saved_spots WHERE user_id = ? AND spot_id IN ({ph})",
+                (viewer_id,) + ids,
+            ):
+                saved_ids.add(row["spot_id"])
+
         comments = {}
         for row in db.execute(
             conn,
@@ -256,6 +266,8 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
             "created_at": s["created_at"],
             "like_count": like_counts.get(s["id"], 0),
             "liked": s["id"] in liked_ids,
+            "saved": s["id"] in saved_ids,
+            "featured": like_counts.get(s["id"], 0) >= FEATURED_LIKES,
             "comments": comments.get(s["id"], []),
             "distance_m": distance_m,
             "unlocked": unlocked,
@@ -503,6 +515,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_create_spot()
             elif method == "POST" and path.startswith("/api/spots/") and path.endswith("/like"):
                 self.api_like()
+            elif method == "POST" and path.startswith("/api/spots/") and path.endswith("/save"):
+                self.api_save()
             elif method == "POST" and path.startswith("/api/spots/") and path.endswith("/comments"):
                 self.api_comment()
             elif method == "POST" and path.startswith("/api/spots/") and path.endswith("/report"):
@@ -609,11 +623,18 @@ class Handler(BaseHTTPRequestHandler):
                WHERE l.user_id = ? ORDER BY l.created_at DESC LIMIT 100""",
             (user["id"],),
         ).fetchall()
+        saved_rows = db.execute(
+            conn,
+            """SELECT sp.* FROM spots sp JOIN saved_spots sv ON sv.spot_id = sp.id
+               WHERE sv.user_id = ? ORDER BY sv.created_at DESC LIMIT 100""",
+            (user["id"],),
+        ).fetchall()
         followers = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE followee_id = ?", (user["id"],)).fetchone()[0]
         following = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE follower_id = ?", (user["id"],)).fetchone()[0]
         conn.close()
         spots = _bulk_public(rows, user["id"], None, None, as_author=True)
         liked_spots = _bulk_public(liked_rows, user["id"], None, None, as_author=True)
+        saved_spots = _bulk_public(saved_rows, user["id"], None, None, as_author=True)
         spots_count = len(spots)
         likes_received = sum(s["like_count"] for s in spots)
         comments_received = sum(len(s["comments"]) for s in spots)
@@ -624,6 +645,7 @@ class Handler(BaseHTTPRequestHandler):
                       "comments": comments_received, "followers": followers, "following": following},
             "spots": spots,
             "liked_spots": liked_spots,
+            "saved_spots": saved_spots,
         })
 
     def api_user_profile(self, query):
@@ -1358,6 +1380,33 @@ class Handler(BaseHTTPRequestHandler):
         if liked and spot["user_id"] != user["id"]:
             _notify_user(spot["user_id"], "Nova curtida ♥", "@{} curtiu sua foto".format(user["username"]), spot_id)
         self._send(200, {"liked": liked, "like_count": count})
+
+    def api_save(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        if _rate_limited(f"sav:{self._client_ip()}:{user['id']}"):
+            self._send(429, {"error": "muitas ações, aguarde um pouco"})
+            return
+        spot_id = self._spot_id_from_path()
+        conn = db.connect()
+        spot = db.execute(conn, "SELECT id FROM spots WHERE id = ?", (spot_id,)).fetchone()
+        if not spot:
+            conn.close()
+            raise ValueError("spot não existe")
+        existing = db.execute(
+            conn, "SELECT 1 FROM saved_spots WHERE spot_id = ? AND user_id = ?", (spot_id, user["id"])
+        ).fetchone()
+        if existing:
+            db.execute(conn, "DELETE FROM saved_spots WHERE spot_id = ? AND user_id = ?", (spot_id, user["id"]))
+            saved = False
+        else:
+            db.execute(conn, "INSERT INTO saved_spots (spot_id, user_id) VALUES (?, ?)", (spot_id, user["id"]))
+            saved = True
+        conn.commit()
+        conn.close()
+        self._send(200, {"saved": saved})
 
     def api_comment(self):
         user = get_user_by_token(self._get_token())

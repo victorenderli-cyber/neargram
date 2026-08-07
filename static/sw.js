@@ -1,4 +1,4 @@
-const CACHE = "neargram-v18";
+const CACHE = "neargram-v19";
 const PHOTO_CACHE = "neargram-photos-v1";
 const PHOTO_MAX = 200;
 const SHELL = [

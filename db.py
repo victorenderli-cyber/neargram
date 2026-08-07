@@ -130,6 +130,11 @@ def schema():
                 followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 created_at TEXT DEFAULT {now},
                 PRIMARY KEY (follower_id, followee_id))""",
+            f"""CREATE TABLE IF NOT EXISTS saved_spots (
+                spot_id INTEGER NOT NULL REFERENCES spots(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TEXT DEFAULT {now},
+                PRIMARY KEY (spot_id, user_id))""",
             f"""CREATE TABLE IF NOT EXISTS notifications (
                 id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -204,6 +209,11 @@ def schema():
             followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             created_at TEXT DEFAULT (datetime('now')),
             PRIMARY KEY (follower_id, followee_id))""",
+        """CREATE TABLE IF NOT EXISTS saved_spots (
+            spot_id INTEGER NOT NULL REFERENCES spots(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (spot_id, user_id))""",
         """CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

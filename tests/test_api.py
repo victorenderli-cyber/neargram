@@ -172,6 +172,31 @@ class ApiTestCase(unittest.TestCase):
         _, _, prof_author = self.call("/api/profile", cookie=author)
         self.assertEqual(len(prof_author["liked_spots"]), 0)
 
+    def test_07d_save_spot(self):
+        author = self.register("mara")
+        fan = self.register("nico")
+        _, _, s = self.call(
+            "/api/spots", "POST",
+            {"name": "Lugar Guardado", "lat": -23.0, "lng": -44.0, "photo": PNG, "radius_m": 500},
+            author,
+        )
+        sid = s["spot"]["id"]
+        status, _, data = self.call(f"/api/spots/{sid}/save", "POST", {}, fan)
+        self.assertEqual(status, 200)
+        self.assertTrue(data["saved"])
+        _, _, prof = self.call("/api/profile", cookie=fan)
+        self.assertEqual(len(prof["saved_spots"]), 1)
+        self.assertEqual(prof["saved_spots"][0]["id"], sid)
+        status, _, data = self.call(f"/api/spots/{sid}/save", "POST", {}, fan)
+        self.assertFalse(data["saved"])
+        _, _, prof2 = self.call("/api/profile", cookie=fan)
+        self.assertEqual(len(prof2["saved_spots"]), 0)
+        status, _, feed = self.call("/api/spots?lat=-23.0&lng=-44.0", cookie=fan)
+        spot = next(x for x in feed["spots"] if x["id"] == sid)
+        self.assertIn("saved", spot)
+        status, _, _ = self.call(f"/api/spots/{sid}/save", "POST", {})
+        self.assertEqual(status, 401)
+
     def test_07b_ranked_top_by_likes(self):
         a = self.register("ruth")
         b = self.register("sammy")
