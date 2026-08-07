@@ -352,6 +352,7 @@ class ApiTestCase(unittest.TestCase):
 
     def test_14_report_and_author_avatar_in_feed(self):
         a = self.register("vania")
+        self.call("/api/profile", "POST", {"avatar": PNG}, a)
         b = self.register("wagner")
         _, _, spot = self.call(
             "/api/spots", "POST",
@@ -366,6 +367,11 @@ class ApiTestCase(unittest.TestCase):
         status, _, data = self.call("/api/spots?lat=-22.95&lng=-43.21")
         item = next((s for s in data["spots"] if s["id"] == spot_id), None)
         self.assertIn("author_avatar", item)
+        self.assertNotIn("data:image", item["author_avatar"])
+        self.assertTrue(item["author_avatar"].startswith("/api/avatars/"))
+        avatar_path = item["author_avatar"]
+        status, _, _ = self.call(avatar_path, method="GET")
+        self.assertEqual(status, 200)
 
     def test_15_search(self):
         a = self.register("xavier")

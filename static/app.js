@@ -892,6 +892,9 @@ async function refreshSpots() {
   state.spots = [];
   state.offset = 0;
   state.hasMore = false;
+  state._markerIds = new Set();
+  if (state.clusterGroup) state.clusterGroup.clearLayers();
+  if (state.heatLayer) state.heatLayer.clearLayers();
   try {
     await loadSpots();
   } catch (e) {
@@ -904,13 +907,54 @@ async function loadSpots() {
   const q = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}${feedQ}&limit=${SPOT_PAGE}&offset=${state.offset}`;
   const data = await api("/spots" + q);
   state.radius = data.radius_m;
+  const prevLen = state.spots.length;
   if (state.offset === 0) state.spots = data.spots;
   else state.spots = state.spots.concat(data.spots);
   state.offset += data.spots.length;
   state.hasMore = data.has_more;
   renderMapMarkers();
-  renderFeed();
+  if (prevLen === 0 || state.feedFilter === "top") {
+    renderFeed();
+  } else {
+    appendFeedSpots(data.spots);
+  }
   renderRadiusHint();
+  preloadFirstPhoto();
+}
+
+function preloadFirstPhoto() {
+  const first = state.spots.find((s) => s.unlocked === true && s.photo);
+  if (!first) return;
+  const sel = 'link[data-rel="photo-preload"]';
+  const existing = document.querySelector(sel);
+  if (existing && existing.href === first.photo) return;
+  if (existing) existing.remove();
+  const link = document.createElement("link");
+  link.rel = "preload";
+  link.as = "image";
+  link.href = first.photo;
+  link.setAttribute("data-rel", "photo-preload");
+  document.head.appendChild(link);
+}
+
+function appendFeedSpots(newSpots) {
+  const feed = $("feed");
+  const list = applyFeedFilter(newSpots);
+  list.forEach((s) => feed.appendChild(buildFeedCard(s)));
+  $("feed-count").textContent = `(${applyFeedFilter(state.spots).length})`;
+  if (state.hasMore) {
+    if (!$("btn-load-more")) {
+      const lm = document.createElement("button");
+      lm.id = "btn-load-more";
+      lm.textContent = "Carregar mais lugares";
+      lm.addEventListener("click", loadMore);
+      feed.appendChild(lm);
+      observeLoadMore(lm);
+    }
+  } else {
+    const lm = $("btn-load-more");
+    if (lm) lm.remove();
+  }
 }
 
 async function loadMore() {
@@ -961,8 +1005,10 @@ function renderMapMarkers() {
     state.clusterGroup = L.markerClusterGroup({ showCoverageOnHover: false });
     state.map.addLayer(state.clusterGroup);
   }
-  state.clusterGroup.clearLayers();
+  if (!state._markerIds) state._markerIds = new Set();
   state.spots.forEach((s) => {
+    if (state._markerIds.has(s.id)) return;
+    state._markerIds.add(s.id);
     const marker = L.marker([s.lat, s.lng], { icon: renderIcon(s) });
     marker.bindPopup(popupHtml(s), { autoClose: true, closeButton: true, maxWidth: 220 });
     marker.on("click", (e) => e.target.openPopup());
@@ -1086,52 +1132,7 @@ function renderFeed() {
     </div>`;
     return;
   }
-  list.forEach((s, idx) => {
-    const card = document.createElement("div");
-    card.className = "feed-card";
-    const unlocked = s.unlocked === true;
-    const imgHtml = unlocked
-      ? `<img class="fc-img" src="${s.photo}" loading="lazy" decoding="async" ${idx === 0 ? 'fetchpriority="high"' : ""} alt="${esc(s.name)}" />`
-      : `<div class="fc-img locked">🔒</div>`;
-    const dist =
-      s.distance_m == null
-        ? ""
-        : unlocked
-        ? `<div class="fc-dist unlocked">✓ Desbloqueada · ${fmtDistance(s.distance_m)}</div>`
-        : `<div class="fc-dist locked">🔒 ${fmtDistance(s.distance_m)} · aproxime-se para abrir</div>`;
-    const authorAvatar = s.author_avatar
-      ? `<img class="avatar-xs" src="${s.author_avatar}" alt=""/>`
-      : `<span class="avatar-xs no-avatar"></span>`;
-    card.innerHTML = `
-      <div class="fc-top">
-        ${imgHtml}
-        <div style="flex:1">
-          <div class="fc-name">${esc(s.name)}${s.featured ? ' <span class="fc-star" title="Lugar em destaque">⭐</span>' : ""}</div>
-          <div class="fc-meta"><button class="link-author" data-user="${esc(s.author)}">${authorAvatar}@${esc(s.author)}</button> · ${s.comment_count ?? s.comments.length} comentários</div>
-          ${dist}
-        </div>
-        <button class="fc-like${s.liked ? " liked" : ""}" data-id="${s.id}" title="Curtir">♥ <span>${s.like_count}</span></button>
-      </div>`;
-    const au = card.querySelector(".link-author");
-    if (au) au.addEventListener("click", (e) => { e.stopPropagation(); openUserProfile(au.dataset.user); });
-    const likeBtn = card.querySelector(".fc-like");
-    likeBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (!state.user) { toast("faça login para curtir", "err"); return; }
-      try {
-        const res = await api(`/spots/${s.id}/like`, { method: "POST", body: {} });
-        s.liked = res.liked;
-        s.like_count = res.like_count;
-        likeBtn.classList.toggle("liked", res.liked);
-        likeBtn.querySelector("span").textContent = res.like_count;
-        loadNotifications();
-      } catch (err) {
-        toast(err.message, "err");
-      }
-    });
-    card.addEventListener("click", () => openSpotDetail(s.id));
-    feed.appendChild(card);
-  });
+  list.forEach((s, idx) => feed.appendChild(buildFeedCard(s, idx === 0)));
   if (state.hasMore) {
     const lm = document.createElement("button");
     lm.id = "btn-load-more";
@@ -1140,6 +1141,53 @@ function renderFeed() {
     feed.appendChild(lm);
     observeLoadMore(lm);
   }
+}
+
+function buildFeedCard(s, isFirst) {
+  const card = document.createElement("div");
+  card.className = "feed-card";
+  const unlocked = s.unlocked === true;
+  const imgHtml = unlocked
+    ? `<img class="fc-img" src="${s.photo}" loading="lazy" decoding="async" ${isFirst ? 'fetchpriority="high"' : ""} alt="${esc(s.name)}" />`
+    : `<div class="fc-img locked">🔒</div>`;
+  const dist =
+    s.distance_m == null
+      ? ""
+      : unlocked
+      ? `<div class="fc-dist unlocked">✓ Desbloqueada · ${fmtDistance(s.distance_m)}</div>`
+      : `<div class="fc-dist locked">🔒 ${fmtDistance(s.distance_m)} · aproxime-se para abrir</div>`;
+  const authorAvatar = s.author_avatar
+    ? `<img class="avatar-xs" src="${s.author_avatar}" alt=""/>`
+    : `<span class="avatar-xs no-avatar"></span>`;
+  card.innerHTML = `
+    <div class="fc-top">
+      ${imgHtml}
+      <div style="flex:1">
+        <div class="fc-name">${esc(s.name)}${s.featured ? ' <span class="fc-star" title="Lugar em destaque">⭐</span>' : ""}</div>
+        <div class="fc-meta"><button class="link-author" data-user="${esc(s.author)}">${authorAvatar}@${esc(s.author)}</button> · ${s.comment_count ?? s.comments.length} comentários</div>
+        ${dist}
+      </div>
+      <button class="fc-like${s.liked ? " liked" : ""}" data-id="${s.id}" title="Curtir">♥ <span>${s.like_count}</span></button>
+    </div>`;
+  const au = card.querySelector(".link-author");
+  if (au) au.addEventListener("click", (e) => { e.stopPropagation(); openUserProfile(au.dataset.user); });
+  const likeBtn = card.querySelector(".fc-like");
+  likeBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (!state.user) { toast("faça login para curtir", "err"); return; }
+    try {
+      const res = await api(`/spots/${s.id}/like`, { method: "POST", body: {} });
+      s.liked = res.liked;
+      s.like_count = res.like_count;
+      likeBtn.classList.toggle("liked", res.liked);
+      likeBtn.querySelector("span").textContent = res.like_count;
+      loadNotifications();
+    } catch (err) {
+      toast(err.message, "err");
+    }
+  });
+  card.addEventListener("click", () => openSpotDetail(s.id));
+  return card;
 }
 
 let _feedObserver = null;
@@ -1962,12 +2010,14 @@ function openGallery(list, idx) {
 
 function renderLightbox() {
   const src = _galleryList[_galleryIdx];
-  if (!src) { $("lightbox").classList.add("hidden"); return; }
+  const box = $("lightbox");
+  if (!src) { box.classList.add("hidden"); box.setAttribute("aria-hidden", "true"); return; }
   $("lightbox-img").src = src;
   $("lb-counter").textContent = _galleryList.length > 1 ? `${_galleryIdx + 1} / ${_galleryList.length}` : "";
   $("lb-prev").classList.toggle("hidden", _galleryList.length < 2);
   $("lb-next").classList.toggle("hidden", _galleryList.length < 2);
-  $("lightbox").classList.remove("hidden");
+  box.classList.remove("hidden");
+  box.setAttribute("aria-hidden", "false");
 }
 
 function lbPrev() { if (_galleryIdx > 0) { _galleryIdx--; renderLightbox(); } }
@@ -1979,7 +2029,7 @@ $("lb-download").addEventListener("click", (e) => {
   e.stopPropagation();
   downloadPhoto($("lightbox-img").src);
 });
-$("lightbox").addEventListener("click", () => $("lightbox").classList.add("hidden"));
+$("lightbox").addEventListener("click", () => { $("lightbox").classList.add("hidden"); $("lightbox").setAttribute("aria-hidden", "true"); });
 
 async function downloadPhoto(src) {
   if (!src) return;

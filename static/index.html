@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>NearGram — fotos de lugares perto de você</title>
 <meta name="theme-color" content="#0f0f14" />
 <meta name="description" content="Rede social de fotos por geolocalização: só vê a foto estando perto do lugar." />
@@ -144,7 +144,7 @@
 
 <div id="modal-new" class="modal hidden" role="dialog" aria-modal="true" aria-label="Publicar foto">
   <div class="modal-box">
-    <div class="modal-head"><h3>Publicar foto de um lugar</h3><button class="btn-close" data-close>×</button></div>
+    <div class="modal-head"><h3>Publicar foto de um lugar</h3><button class="btn-close" data-close aria-label="Fechar">×</button></div>
     <p class="hint">Sua foto fica "presa" na sua posição atual. Para desbloquear a foto de outro lugar, você precisa chegar perto dele.</p>
     <div class="new-grid">
       <div>
@@ -174,7 +174,7 @@
 
 <div id="modal-spot" class="modal hidden" role="dialog" aria-modal="true" aria-label="Detalhes do lugar">
   <div class="modal-box spot-box">
-    <div class="modal-head"><h3 id="spot-title"></h3><button class="btn-close" data-close>×</button></div>
+    <div class="modal-head"><h3 id="spot-title"></h3><button class="btn-close" data-close aria-label="Fechar">×</button></div>
     <div id="spot-photo" class="spot-photo"></div>
     <div id="spot-lock" class="lock-box hidden">
       <div class="lock-icon">🔒</div>
@@ -227,7 +227,7 @@
 
 <div id="modal-ranking" class="modal hidden" role="dialog" aria-modal="true" aria-label="Ranking de lugares">
   <div class="modal-box">
-    <div class="modal-head"><h3>🏆 Top lugares</h3><button class="btn-close" data-close>×</button></div>
+    <div class="modal-head"><h3>🏆 Top lugares</h3><button class="btn-close" data-close aria-label="Fechar">×</button></div>
     <div id="ranking-loading" class="hint">Carregando…</div>
     <div id="ranking-list"></div>
     <p id="ranking-empty" class="hint hidden">Nenhum lugar ainda. Seja o primeiro a publicar! 📸</p>
@@ -236,7 +236,7 @@
 
 <div id="modal-profile" class="modal hidden" role="dialog" aria-modal="true" aria-label="Meu perfil">
   <div class="modal-box">
-    <div class="modal-head"><h3 id="profile-title">Meu perfil</h3><button class="btn-close" data-close>×</button></div>
+    <div class="modal-head"><h3 id="profile-title">Meu perfil</h3><button class="btn-close" data-close aria-label="Fechar">×</button></div>
     <div class="profile-head">
       <img id="profile-avatar" class="avatar-lg" alt="" />
       <div class="profile-head-info">
@@ -302,7 +302,7 @@
 
 <div id="modal-user" class="modal hidden" role="dialog" aria-modal="true" aria-label="Perfil do usuário">
   <div class="modal-box">
-    <div class="modal-head"><h3 id="user-title"></h3><button class="btn-close" data-close>×</button></div>
+    <div class="modal-head"><h3 id="user-title"></h3><button class="btn-close" data-close aria-label="Fechar">×</button></div>
     <div class="profile-head">
       <img id="user-avatar" class="avatar-lg" alt="" />
       <div class="profile-head-info">
@@ -322,7 +322,7 @@
 
 <div id="modal-search" class="modal hidden" role="dialog" aria-modal="true" aria-label="Buscar">
   <div class="modal-box">
-    <div class="modal-head"><h3>Buscar</h3><button class="btn-close" data-close>×</button></div>
+    <div class="modal-head"><h3>Buscar</h3><button class="btn-close" data-close aria-label="Fechar">×</button></div>
     <div class="search-row">
       <input id="search-input" type="search" placeholder="Lugares ou usuários…" maxlength="60" aria-label="Buscar lugares ou usuários" />
       <button id="btn-search-go" class="btn-primary">Buscar</button>
@@ -333,7 +333,7 @@
 
 <div id="modal-notifs" class="modal hidden" role="dialog" aria-modal="true" aria-label="Notificações">
   <div class="modal-box">
-    <div class="modal-head"><h3>Notificações</h3><button class="btn-close" data-close>×</button></div>
+    <div class="modal-head"><h3>Notificações</h3><button class="btn-close" data-close aria-label="Fechar">×</button></div>
     <div id="notif-list"></div>
     <p id="notif-empty" class="hint hidden">Sem notificações ainda.</p>
   </div>
@@ -341,7 +341,7 @@
 
 <div id="modal-privacy" class="modal hidden" role="dialog" aria-modal="true" aria-label="Política de privacidade">
   <div class="modal-box">
-    <div class="modal-head"><h3>🔒 Política de privacidade</h3><button class="btn-close" data-close>×</button></div>
+    <div class="modal-head"><h3>🔒 Política de privacidade</h3><button class="btn-close" data-close aria-label="Fechar">×</button></div>
     <div class="privacy-text">
       <h4>O que coletamos (somente com seu consentimento)</h4>
       <ul>

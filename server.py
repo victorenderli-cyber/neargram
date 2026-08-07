@@ -193,7 +193,6 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False, inclu
                 conn, f"SELECT id, username, avatar FROM users WHERE id IN ({uph})", user_ids
             ):
                 users[row["id"]] = {"username": row["username"], "avatar": row["avatar"] or ""}
-
         like_counts = {}
         for row in db.execute(
             conn,
@@ -273,7 +272,7 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False, inclu
             "photo": photo,
             "radius_m": s["radius_m"],
             "author": (users.get(s["user_id"]) or {}).get("username", "unknown"),
-            "author_avatar": (users.get(s["user_id"]) or {}).get("avatar", ""),
+            "author_avatar": _avatar_public(s["user_id"], (users.get(s["user_id"]) or {}).get("avatar", "")),
             "mine": is_author,
             "created_at": s["created_at"],
             "like_count": like_counts.get(s["id"], 0),
@@ -307,11 +306,18 @@ def _public_user(user, viewer_id):
         "id": user["id"],
         "username": user["username"],
         "bio": user["bio"] or "",
-        "avatar": user["avatar"] or "",
+        "avatar": _avatar_public(user["id"], user["avatar"]),
         "stats": {"spots": spots_n, "followers": followers, "following": following},
         "is_following": is_following,
         "follows_me": follows_me,
     }
+
+
+def _avatar_public(user_id, avatar):
+    """Referência estável para o avatar (URL própria com cache) em vez de base64 embutido."""
+    if not avatar:
+        return ""
+    return f"/api/avatars/{user_id}"
 
 
 def _cloudinary_upload(raw, mime):
@@ -346,6 +352,9 @@ def _notify_user(user_id, title, body, spot_id=None):
     subs = db.execute(
         conn, "SELECT endpoint, p256dh, auth FROM push_subs WHERE user_id = ?", (user_id,)
     ).fetchall()
+    unread = db.execute(
+        conn, "SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read = 0", (user_id,)
+    ).fetchone()[0]
     conn.close()
     if not subs:
         return
@@ -353,6 +362,7 @@ def _notify_user(user_id, title, body, spot_id=None):
         "title": title,
         "body": body,
         "url": f"/#spot={spot_id}" if spot_id else "/",
+        "badge": unread,
     })
     vapid_claims = {"sub": VAPID_SUBJECT}
     for s in subs:
@@ -508,6 +518,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_notifications_read()
             elif method == "GET" and path == "/api/users/suggested":
                 self.api_users_suggested()
+            elif method == "GET" and path.startswith("/api/avatars/"):
+                self.api_avatar()
             elif method == "GET" and path.startswith("/api/users/"):
                 self.api_user_profile(query)
             elif method == "POST" and path.startswith("/api/users/") and path.endswith("/follow"):
@@ -692,19 +704,19 @@ class Handler(BaseHTTPRequestHandler):
             conn, "SELECT * FROM spots WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)
         ).fetchall()
         followers = [
-            {"username": r["username"], "avatar": r["avatar"] or ""}
+            {"username": r["username"], "avatar": _avatar_public(r["id"], r["avatar"])}
             for r in db.execute(
                 conn,
-                """SELECT u.username, u.avatar FROM follows f JOIN users u ON u.id = f.follower_id
+                """SELECT u.id, u.username, u.avatar FROM follows f JOIN users u ON u.id = f.follower_id
                    WHERE f.followee_id = ? ORDER BY u.username LIMIT 50""",
                 (user["id"],),
             )
         ]
         following = [
-            {"username": r["username"], "avatar": r["avatar"] or ""}
+            {"username": r["username"], "avatar": _avatar_public(r["id"], r["avatar"])}
             for r in db.execute(
                 conn,
-                """SELECT u.username, u.avatar FROM follows f JOIN users u ON u.id = f.followee_id
+                """SELECT u.id, u.username, u.avatar FROM follows f JOIN users u ON u.id = f.followee_id
                    WHERE f.follower_id = ? ORDER BY u.username LIMIT 50""",
                 (user["id"],),
             )
@@ -792,7 +804,7 @@ class Handler(BaseHTTPRequestHandler):
         ).fetchall()
         conn.close()
         users = [
-            {"id": r["id"], "username": r["username"], "bio": r["bio"] or "", "avatar": r["avatar"] or ""}
+            {"id": r["id"], "username": r["username"], "bio": r["bio"] or "", "avatar": _avatar_public(r["id"], r["avatar"])}
             for r in urows
         ]
         spots = _bulk_public(srows, viewer["id"] if viewer else None, lat, lng, include_comments=False)
@@ -1415,6 +1427,36 @@ class Handler(BaseHTTPRequestHandler):
         spots = _bulk_public([row], viewer_id, lat, lng)
         self._send(200, {"spot": spots[0]})
 
+    def api_avatar(self):
+        try:
+            user_id = self._spot_id_from_path()
+        except (ValueError, IndexError):
+            raise ValueError("id inválido")
+        conn = db.connect()
+        user = db.execute(conn, "SELECT avatar FROM users WHERE id = ?", (user_id,)).fetchone()
+        conn.close()
+        if not user or not user["avatar"]:
+            self._send(404, {"error": "sem avatar"})
+            return
+        stored = user["avatar"]
+        if stored.startswith("http"):
+            self.send_response(302)
+            self.send_header("Location", stored)
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self._security_headers()
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        mime = "image/png"
+        if stored.startswith("data:"):
+            mime = stored.split(";", 1)[0].split(":", 1)[1]
+            stored = stored.split(",", 1)[1]
+        try:
+            raw = base64.b64decode(stored)
+        except Exception:
+            raw = b""
+        self._send(200, raw, content_type=mime, cache_control="public, max-age=86400")
+
     def api_spot_photo(self, query):
         viewer = get_user_by_token(self._get_token())
         try:
@@ -1591,7 +1633,7 @@ class Handler(BaseHTTPRequestHandler):
                 suggested.append({
                     "id": r["id"],
                     "username": r["username"],
-                    "avatar": r["avatar"],
+                    "avatar": _avatar_public(r["id"], r["avatar"]),
                     "bio": r["bio"],
                     "spot_count": r["spot_count"],
                     "is_following": r["id"] in followed,

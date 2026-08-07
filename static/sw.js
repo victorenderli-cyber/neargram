@@ -1,4 +1,4 @@
-const CACHE = "neargram-v21";
+const CACHE = "neargram-v22";
 const PHOTO_CACHE = "neargram-photos-v1";
 const PHOTO_MAX = 200;
 const SHELL = [
@@ -23,7 +23,7 @@ const SHELL = [
 self.addEventListener("install", (e) => {
   e.waitUntil(
     caches.open(CACHE)
-      .then((c) => c.addAll(SHELL))
+      .then((c) => Promise.allSettled(SHELL.map((u) => c.add(u))))
       .then(() => self.skipWaiting())
   );
 });
@@ -85,15 +85,18 @@ self.addEventListener("fetch", (e) => {
 });
 
 self.addEventListener("push", (e) => {
-  let data = { title: "NearGram", body: "", url: "/" };
+  let data = { title: "NearGram", body: "", url: "/", badge: 0 };
   if (e.data) {
     try { data = Object.assign(data, e.data.json()); } catch (err) {}
   }
+  const badgeText = Number(data.badge) > 0 ? ` (${data.badge} não lida${Number(data.badge) > 1 ? "s" : ""})` : "";
   e.waitUntil(
-    self.registration.showNotification(data.title || "NearGram", {
+    self.registration.showNotification((data.title || "NearGram") + badgeText, {
       body: data.body || "",
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
+      tag: "neargram",
+      renotify: true,
       data: { url: data.url || "/" },
     })
   );
