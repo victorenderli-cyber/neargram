@@ -701,6 +701,24 @@ class ApiTestCase(unittest.TestCase):
         self.assertIn("users", data)
         self.assertTrue(any(u["username"] == "user_sug_b" for u in data["users"]))
 
+    def test_33_photo_thumb(self):
+        author = self.register("thumbs")
+        _, _, create = self.call(
+            "/api/spots", "POST",
+            {"name": "Praça", "lat": -22.95, "lng": -43.21, "photo": PNG, "radius_m": 500},
+            author,
+        )
+        spot_id = create["spot"]["id"]
+        _, _, feed = self.call("/api/spots?lat=-22.95&lng=-43.21")
+        spot = next(s for s in feed["spots"] if s["id"] == spot_id)
+        self.assertTrue(spot["photo_thumb"].endswith("size=200"))
+        status, headers, raw = self.call(spot["photo_thumb"])
+        self.assertEqual(status, 200)
+        self.assertTrue(headers.get("Content-Type", "").startswith("image/"))
+        self.assertTrue(len(raw) > 0)
+        _, headers_full, _ = self.call(f"/api/spots/{spot_id}/photo?lat=-22.95&lng=-43.21")
+        self.assertTrue(headers_full.get("Content-Type", "").startswith("image/"))
+
 
 if __name__ == "__main__":
     unittest.main()

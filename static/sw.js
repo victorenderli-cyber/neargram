@@ -1,4 +1,4 @@
-const CACHE = "neargram-v22";
+const CACHE = "neargram-v23";
 const PHOTO_CACHE = "neargram-photos-v1";
 const PHOTO_MAX = 200;
 const SHELL = [
@@ -58,11 +58,11 @@ self.addEventListener("fetch", (e) => {
               if (keys.length >= PHOTO_MAX) {
                 return c.delete(keys[0]);
               }
-            }).then(() => c.put(url.pathname, clone));
+            }).then(() => c.put(e.request, clone));
           });
         }
         return resp;
-      }).catch(() => caches.match(url.pathname).then((c) => c || new Response("", { status: 404 })))
+      }).catch(() => caches.match(e.request).then((c) => c || new Response("", { status: 404 })))
     );
     return;
   }

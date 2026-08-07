@@ -1,6 +1,7 @@
 import base64
 import gzip
 import hashlib
+import io
 import json
 import math
 import os
@@ -252,11 +253,14 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False, inclu
             unlocked = distance_m <= s["radius_m"]
         is_author = bool(viewer_id and viewer_id == s["user_id"])
         photo = None
+        photo_thumb = None
         if as_author or is_author:
             unlocked = True
             photo = f"/api/spots/{s['id']}/photo"
+            photo_thumb = f"/api/spots/{s['id']}/photo?size=200"
         elif unlocked:
             photo = f"/api/spots/{s['id']}/photo?lat={viewer_lat}&lng={viewer_lng}"
+            photo_thumb = _photo_url_thumb(s["id"], viewer_lat, viewer_lng, 200)
         if include_comments:
             comments_list = comments.get(s["id"], [])
             comment_count = len(comments_list)
@@ -270,6 +274,7 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False, inclu
             "lat": s["lat"],
             "lng": s["lng"],
             "photo": photo,
+            "photo_thumb": photo_thumb,
             "radius_m": s["radius_m"],
             "author": (users.get(s["user_id"]) or {}).get("username", "unknown"),
             "author_avatar": _avatar_public(s["user_id"], (users.get(s["user_id"]) or {}).get("avatar", "")),
@@ -318,6 +323,41 @@ def _avatar_public(user_id, avatar):
     if not avatar:
         return ""
     return f"/api/avatars/{user_id}"
+
+
+_THUMB_CACHE = {}
+def _photo_thumbnail(raw, max_size):
+    """Gera (bytes, mime) de um thumbnail JPEG do raw original, com cache em memória."""
+    key = (hashlib.sha1(raw).hexdigest(), max_size)
+    hit = _THUMB_CACHE.get(key)
+    if hit is not None:
+        return hit
+    try:
+        from PIL import Image
+    except ImportError:
+        return (raw, None)
+    try:
+        img = Image.open(io.BytesIO(raw))
+        img.thumbnail((max_size, max_size))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=78, optimize=True, progressive=True)
+        data = buf.getvalue()
+    except Exception:
+        return (raw, None)
+    if len(_THUMB_CACHE) > 128:
+        _THUMB_CACHE.clear()
+    _THUMB_CACHE[key] = (data, "image/jpeg")
+    return (data, "image/jpeg")
+
+
+def _photo_url_thumb(spot_id, lat, lng, size):
+    qs = []
+    if lat is not None and lng is not None:
+        qs.append(f"lat={lat}&lng={lng}")
+    qs.append(f"size={size}")
+    return f"/api/spots/{spot_id}/photo?{'&'.join(qs)}"
 
 
 def _cloudinary_upload(raw, mime):
@@ -1463,6 +1503,7 @@ class Handler(BaseHTTPRequestHandler):
             spot_id = self._spot_id_from_path()
             lat = float(query.get("lat", [""])[0]) if query.get("lat") else None
             lng = float(query.get("lng", [""])[0]) if query.get("lng") else None
+            size = int(query.get("size", ["0"])[0]) if query.get("size") else 0
         except (ValueError, IndexError):
             raise ValueError("lat/lng inválidos")
         conn = db.connect()
@@ -1481,8 +1522,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
         stored = spot["photo_b64"]
         if stored.startswith("http"):
+            loc = stored
+            if size > 0 and "/image/upload/" in stored:
+                loc = stored.replace("/image/upload/", f"/image/upload/w_{size},c_thumb,q_auto/", 1)
             self.send_response(302)
-            self.send_header("Location", stored)
+            self.send_header("Location", loc)
             self.send_header("Cache-Control", "public, max-age=3600")
             self._security_headers()
             self.send_header("Content-Length", "0")
@@ -1492,6 +1536,11 @@ class Handler(BaseHTTPRequestHandler):
             raw = base64.b64decode(stored)
         except Exception:
             raw = b""
+        if size > 0:
+            raw, mime = _photo_thumbnail(raw, size)
+            if mime:
+                self._send(200, raw, content_type=mime, cache_control="public, max-age=86400")
+                return
         self._send(200, raw, content_type=f"image/{spot['photo_mime']}", cache_control="public, max-age=86400")
 
     def api_like(self):
@@ -1670,6 +1719,15 @@ class Handler(BaseHTTPRequestHandler):
             body = f.read()
         body, encoding = self._gzip_if_possible(body, mime)
         cache = "no-cache" if ext in (".html", ".json", ".webmanifest") else "public, max-age=86400"
+        etag = '"%s-%d"' % (hashlib.sha1(body).hexdigest()[:16], len(body))
+        inm = self.headers.get("If-None-Match")
+        if inm and inm.split(";")[0].strip() == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Vary", "Accept-Encoding")
+            self._security_headers()
+            self.end_headers()
+            return
         self.send_response(200)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(body)))
@@ -1677,6 +1735,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Encoding", encoding)
         self.send_header("Vary", "Accept-Encoding")
         self.send_header("Cache-Control", cache)
+        self.send_header("ETag", etag)
         self._security_headers()
         self.end_headers()
         self.wfile.write(body)

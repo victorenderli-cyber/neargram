@@ -1051,7 +1051,7 @@ $("btn-heatmap").addEventListener("click", toggleHeatmap);
 function popupHtml(s) {
   const unlocked = s.unlocked === true;
   const thumb = unlocked && s.photo
-    ? `<img class="popup-thumb" src="${s.photo}" alt="${esc(s.name)}" />`
+    ? `<img class="popup-thumb" src="${s.photo_thumb || s.photo}" loading="lazy" decoding="async" alt="${esc(s.name)}" />`
     : `<div class="popup-thumb locked">🔒</div>`;
   const dist = s.distance_m == null ? "" : ` · ${fmtDistance(s.distance_m)}`;
   const featured = s.featured ? `<span class="popup-featured" title="Lugar em destaque">⭐ Destaque</span>` : "";
@@ -1148,7 +1148,7 @@ function buildFeedCard(s, isFirst) {
   card.className = "feed-card";
   const unlocked = s.unlocked === true;
   const imgHtml = unlocked
-    ? `<img class="fc-img" src="${s.photo}" loading="lazy" decoding="async" ${isFirst ? 'fetchpriority="high"' : ""} alt="${esc(s.name)}" />`
+    ? `<img class="fc-img" src="${s.photo_thumb || s.photo}" loading="lazy" decoding="async" ${isFirst ? 'fetchpriority="high"' : ""} alt="${esc(s.name)}" />`
     : `<div class="fc-img locked">🔒</div>`;
   const dist =
     s.distance_m == null
@@ -1977,23 +1977,51 @@ function closeTour() {
 
 /* ---------------- Modal helpers ---------------- */
 function showModal(id) {
-  $(id)?.classList.remove("hidden");
+  const m = $(id);
+  if (!m) return;
+  m.classList.remove("hidden");
+  m.setAttribute("aria-hidden", "false");
+  _lastFocus = document.activeElement;
+  const first = m.querySelector("button, input, select, textarea, [href], [tabindex]:not([tabindex='-1'])");
+  if (first) first.focus();
 }
 function hideModal(id) {
-  $(id)?.classList.add("hidden");
+  _closeModal($(id));
+}
+function topModal() {
+  const modals = document.querySelectorAll(".modal:not(.hidden)");
+  return modals.length ? modals[modals.length - 1] : null;
+}
+let _lastFocus = null;
+function _closeModal(m) {
+  if (!m) return;
+  m.classList.add("hidden");
+  m.setAttribute("aria-hidden", "true");
+  if (_lastFocus && document.contains(_lastFocus)) _lastFocus.focus();
+  _lastFocus = null;
 }
 document.querySelectorAll("[data-close]").forEach((b) =>
-  b.addEventListener("click", () => b.closest(".modal").classList.add("hidden"))
+  b.addEventListener("click", () => _closeModal(b.closest(".modal")))
 );
-document.querySelectorAll(".modal").forEach((m) =>
+document.querySelectorAll(".modal").forEach((m) => {
   m.addEventListener("click", (e) => {
-    if (e.target === m) m.classList.add("hidden");
-  })
-);
+    if (e.target === m) _closeModal(m);
+  });
+  m.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab") return;
+    const focusables = m.querySelectorAll("button, input, select, textarea, [href], [tabindex]:not([tabindex='-1'])");
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+});
 
 /* ---------------- Lightbox / Galeria ---------------- */
 let _galleryList = [];
 let _galleryIdx = 0;
+let _lbFocus = null;
 
 function openLightbox(src) {
   _galleryList = [src];
@@ -2011,13 +2039,22 @@ function openGallery(list, idx) {
 function renderLightbox() {
   const src = _galleryList[_galleryIdx];
   const box = $("lightbox");
-  if (!src) { box.classList.add("hidden"); box.setAttribute("aria-hidden", "true"); return; }
+  if (!src) {
+    box.classList.add("hidden");
+    box.setAttribute("aria-hidden", "true");
+    if (_lbFocus && document.contains(_lbFocus)) _lbFocus.focus();
+    _lbFocus = null;
+    return;
+  }
   $("lightbox-img").src = src;
   $("lb-counter").textContent = _galleryList.length > 1 ? `${_galleryIdx + 1} / ${_galleryList.length}` : "";
   $("lb-prev").classList.toggle("hidden", _galleryList.length < 2);
   $("lb-next").classList.toggle("hidden", _galleryList.length < 2);
   box.classList.remove("hidden");
   box.setAttribute("aria-hidden", "false");
+  if (!_lbFocus) _lbFocus = document.activeElement;
+  box.setAttribute("tabindex", "-1");
+  box.focus();
 }
 
 function lbPrev() { if (_galleryIdx > 0) { _galleryIdx--; renderLightbox(); } }
@@ -2029,7 +2066,12 @@ $("lb-download").addEventListener("click", (e) => {
   e.stopPropagation();
   downloadPhoto($("lightbox-img").src);
 });
-$("lightbox").addEventListener("click", () => { $("lightbox").classList.add("hidden"); $("lightbox").setAttribute("aria-hidden", "true"); });
+$("lightbox").addEventListener("click", () => {
+  $("lightbox").classList.add("hidden");
+  $("lightbox").setAttribute("aria-hidden", "true");
+  if (_lbFocus && document.contains(_lbFocus)) _lbFocus.focus();
+  _lbFocus = null;
+});
 
 async function downloadPhoto(src) {
   if (!src) return;
@@ -2063,7 +2105,17 @@ async function downloadPhoto(src) {
   }
 }
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") $("lightbox").classList.add("hidden");
+  if (e.key === "Escape") {
+    const lb = $("lightbox");
+    if (lb && !lb.classList.contains("hidden")) {
+      lb.classList.add("hidden");
+      lb.setAttribute("aria-hidden", "true");
+      if (_lbFocus && document.contains(_lbFocus)) _lbFocus.focus();
+      _lbFocus = null;
+      return;
+    }
+    _closeModal(topModal());
+  }
   if ($("lightbox").classList.contains("hidden")) return;
   if (e.key === "ArrowLeft") lbPrev();
   if (e.key === "ArrowRight") lbNext();
