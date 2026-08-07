@@ -230,7 +230,9 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `0f67b0e` | **Melhorias:** validação de username (regex `[A-Za-z0-9_]{4,24}`, unicidade case-insensitive), senha mínima 6 (registro e troca), avisos offline/online, `minlength`/`pattern` no registro, CSP sem OSM. 28 testes |
 | `58ada48` | **Melhorias:** editar comentário (PATCH `/api/comments/{id}`), listas de seguidores/seguindo no perfil (avatares clicáveis), `mine` nos comentários (API), rate limit na busca, Cache-Control por tipo (HTML/JSON `no-cache`, estáticos 1 dia). 31 testes |
 | *(anterior)* | **Telemetria com consentimento (SW v12, 31 testes):** eventos de uso instrumentados (like, comment, publish, follow, search, theme, install, map_layer, consent_granted), aviso/bandeira de consentimento no auth-perfil, toggle no perfil para controlar, backend `/api/telemetry/consent` e `/api/telemetry` com rate limit, GPS aproximado (~1 km) para desenvolvimento. |
-| *(atual)* | **"Pessoas que talvez conheça" (SW v13, 32 testes):** endpoint `/api/users/suggested` (exclui quem você já segue, ordena por nº de lugares, inclui avatar/bio/spot_count/is_following), carrossel de sugestões no feed com botão de seguir rápido, `generate_bots.py` para popular apps de demonstração. |
+| `bf8fe85` | **"Pessoas que talvez conheça" (SW v13, 32 testes):** endpoint `/api/users/suggested` (exclui quem você já segue, ordena por nº de lugares, inclui avatar/bio/spot_count/is_following), carrossel de sugestões no feed com botão de seguir rápido, `generate_bots.py` para popular apps de demonstração. |
+| `2809324` | **Performance:** `fetchpriority="high"` na 1ª imagem do feed e debounce (220 ms) ao clicar no mapa em modo simulação para evitar rajada de chamadas. Validado via CDP. |
+| *(atual)* | **Ranking de lugares (SW v16, 33 testes):** `GET /api/spots/ranked` (top mais curtidos por agregado de likes), botão **🏆 Ranking** no feed abre modal com medalhas 🥇🥈🥉, autor e nº de curtidas; clicar abre o detalhe do lugar. Validado via CDP. |
 
 ---
 
