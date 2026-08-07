@@ -564,7 +564,7 @@ document.querySelectorAll('input[name="mode"]').forEach((r) =>
           return;
         }
         state.map.on("click", (ev) => {
-          setPosition(ev.latlng.lat, ev.latlng.lng, true);
+          setPositionDebounced(ev.latlng.lat, ev.latlng.lng, true);
         });
         setModeLabel("📌 Simulação: clique no mapa para ser o seu ponto");
       } else {
@@ -595,7 +595,7 @@ function startPositioning() {
     $("map-loading").textContent = "Modo simulação: clique no mapa para se posicionar";
     $("map-loading").style.display = "flex";
     state.map.on("click", (ev) => {
-      setPosition(ev.latlng.lat, ev.latlng.lng, true);
+      setPositionDebounced(ev.latlng.lat, ev.latlng.lng, true);
       $("map-loading").style.display = "none";
     });
   }
@@ -638,6 +638,12 @@ function setPosition(lat, lng, fromSim) {
     ? `Posição simulada: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
     : `Posição real: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
   refreshSpots();
+}
+
+let _posDebounce = null;
+function setPositionDebounced(lat, lng, fromSim) {
+  clearTimeout(_posDebounce);
+  _posDebounce = setTimeout(() => setPosition(lat, lng, fromSim), 220);
 }
 
 function youIcon() {
@@ -802,12 +808,12 @@ function renderFeed() {
     if (link) link.addEventListener("click", () => showModal("modal-search"));
     return;
   }
-  state.spots.forEach((s) => {
+  state.spots.forEach((s, idx) => {
     const card = document.createElement("div");
     card.className = "feed-card";
     const unlocked = s.unlocked === true;
     const imgHtml = unlocked
-      ? `<img class="fc-img" src="${s.photo}" loading="lazy" decoding="async" alt="${esc(s.name)}" />`
+      ? `<img class="fc-img" src="${s.photo}" loading="lazy" decoding="async" ${idx === 0 ? 'fetchpriority="high"' : ""} alt="${esc(s.name)}" />`
       : `<div class="fc-img locked">🔒</div>`;
     const dist =
       s.distance_m == null
