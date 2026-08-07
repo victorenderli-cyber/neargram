@@ -177,7 +177,7 @@ def public_spot(spot, viewer_id=None, viewer_lat=None, viewer_lng=None, as_autho
     }
 
 
-def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
+def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False, include_comments=True):
     if not rows:
         return []
     conn = db.connect()
@@ -221,20 +221,26 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
                 saved_ids.add(row["spot_id"])
 
         comments = {}
-        for row in db.execute(
-            conn,
-            f"""SELECT c.spot_id, c.id, c.user_id, c.text, c.created_at, u.username
-                FROM comments c JOIN users u ON u.id = c.user_id
-                WHERE c.spot_id IN ({ph}) ORDER BY c.created_at ASC""",
-            ids,
-        ):
-            comments.setdefault(row["spot_id"], []).append(
-                {
-                    "id": row["id"], "text": row["text"], "author": row["username"],
-                    "created_at": row["created_at"],
-                    "mine": bool(viewer_id and viewer_id == row["user_id"]),
-                }
-            )
+        if include_comments:
+            for row in db.execute(
+                conn,
+                f"""SELECT c.spot_id, c.id, c.user_id, c.text, c.created_at, u.username
+                    FROM comments c JOIN users u ON u.id = c.user_id
+                    WHERE c.spot_id IN ({ph}) ORDER BY c.created_at ASC""",
+                ids,
+            ):
+                comments.setdefault(row["spot_id"], []).append(
+                    {
+                        "id": row["id"], "text": row["text"], "author": row["username"],
+                        "created_at": row["created_at"],
+                        "mine": bool(viewer_id and viewer_id == row["user_id"]),
+                    }
+                )
+        else:
+            for row in db.execute(
+                conn, f"SELECT spot_id, COUNT(*) AS c FROM comments WHERE spot_id IN ({ph}) GROUP BY spot_id", ids
+            ):
+                comments[row["spot_id"]] = row["c"]
     finally:
         conn.close()
 
@@ -252,6 +258,12 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
             photo = f"/api/spots/{s['id']}/photo"
         elif unlocked:
             photo = f"/api/spots/{s['id']}/photo?lat={viewer_lat}&lng={viewer_lng}"
+        if include_comments:
+            comments_list = comments.get(s["id"], [])
+            comment_count = len(comments_list)
+        else:
+            comments_list = []
+            comment_count = comments.get(s["id"], 0) or 0
         out.append({
             "id": s["id"],
             "name": s["name"],
@@ -268,7 +280,8 @@ def _bulk_public(rows, viewer_id, viewer_lat, viewer_lng, as_author=False):
             "liked": s["id"] in liked_ids,
             "saved": s["id"] in saved_ids,
             "featured": like_counts.get(s["id"], 0) >= FEATURED_LIKES,
-            "comments": comments.get(s["id"], []),
+            "comments": comments_list,
+            "comment_count": comment_count,
             "distance_m": distance_m,
             "unlocked": unlocked,
         })
@@ -503,6 +516,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_spots_ranked(query)
             elif method == "GET" and path == "/api/spots":
                 self.api_spots(query)
+            elif method == "GET" and path.startswith("/api/spots/") and not path.endswith("/photo"):
+                self.api_spot_detail(query)
             elif method == "GET" and path.startswith("/api/spots/") and path.endswith("/photo"):
                 self.api_spot_photo(query)
             elif method == "POST" and path == "/api/register":
@@ -647,9 +662,9 @@ class Handler(BaseHTTPRequestHandler):
         following = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE follower_id = ?", (user["id"],)).fetchone()[0]
         conn.close()
         spots = _bulk_public(rows, user["id"], None, None, as_author=True)
-        liked_spots = _bulk_public(liked_rows, user["id"], None, None, as_author=True)
-        saved_spots = _bulk_public(saved_rows, user["id"], None, None, as_author=True)
-        visited_spots = _bulk_public(visited_rows, user["id"], lat, lng)
+        liked_spots = _bulk_public(liked_rows, user["id"], None, None, as_author=True, include_comments=False)
+        saved_spots = _bulk_public(saved_rows, user["id"], None, None, as_author=True, include_comments=False)
+        visited_spots = _bulk_public(visited_rows, user["id"], lat, lng, include_comments=False)
         spots_count = len(spots)
         likes_received = sum(s["like_count"] for s in spots)
         comments_received = sum(len(s["comments"]) for s in spots)
@@ -700,7 +715,7 @@ class Handler(BaseHTTPRequestHandler):
             lng = float(query.get("lng", [""])[0]) if query.get("lng") else None
         except (ValueError, IndexError):
             raise ValueError("lat/lng inválidos")
-        spots = _bulk_public(rows, viewer["id"] if viewer else None, lat, lng)
+        spots = _bulk_public(rows, viewer["id"] if viewer else None, lat, lng, include_comments=False)
         pub = _public_user(user, viewer["id"] if viewer else None)
         pub["spots"] = spots
         pub["followers_list"] = followers
@@ -780,7 +795,7 @@ class Handler(BaseHTTPRequestHandler):
             {"id": r["id"], "username": r["username"], "bio": r["bio"] or "", "avatar": r["avatar"] or ""}
             for r in urows
         ]
-        spots = _bulk_public(srows, viewer["id"] if viewer else None, lat, lng)
+        spots = _bulk_public(srows, viewer["id"] if viewer else None, lat, lng, include_comments=False)
         if lat is not None and lng is not None:
             spots.sort(
                 key=lambda s: (
@@ -1277,7 +1292,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn, "SELECT * FROM spots ORDER BY created_at DESC LIMIT ?", (MAX_SPOT_LIMIT,)
             ).fetchall()
         conn.close()
-        spots = _bulk_public(rows, viewer_id, lat, lng)
+        spots = _bulk_public(rows, viewer_id, lat, lng, include_comments=False)
         if lat is None or lng is None:
             for s in spots:
                 s["unlocked"] = None
@@ -1315,7 +1330,7 @@ class Handler(BaseHTTPRequestHandler):
             ).fetchall()
         finally:
             conn.close()
-        spots = _bulk_public(rows, viewer_id, None, None)
+        spots = _bulk_public(rows, viewer_id, None, None, include_comments=False)
         for s in spots:
             s["unlocked"] = None
             s["distance_m"] = None
@@ -1378,7 +1393,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def _spot_id_from_path(self):
         parts = urlparse(self.path).path.strip("/").split("/")
+        if parts[-1].isdigit():
+            return int(parts[-1])
         return int(parts[-2])
+
+    def api_spot_detail(self, query):
+        viewer = get_user_by_token(self._get_token())
+        try:
+            spot_id = self._spot_id_from_path()
+            lat = float(query.get("lat", [""])[0]) if query.get("lat") else None
+            lng = float(query.get("lng", [""])[0]) if query.get("lng") else None
+        except (ValueError, IndexError):
+            raise ValueError("lat/lng inválidos")
+        viewer_id = viewer["id"] if viewer else None
+        conn = db.connect()
+        row = db.execute(conn, "SELECT * FROM spots WHERE id = ?", (spot_id,)).fetchone()
+        conn.close()
+        if not row:
+            self._send(404, {"error": "não existe"})
+            return
+        spots = _bulk_public([row], viewer_id, lat, lng)
+        self._send(200, {"spot": spots[0]})
 
     def api_spot_photo(self, query):
         viewer = get_user_by_token(self._get_token())

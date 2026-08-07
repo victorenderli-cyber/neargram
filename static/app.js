@@ -1107,7 +1107,7 @@ function renderFeed() {
         ${imgHtml}
         <div style="flex:1">
           <div class="fc-name">${esc(s.name)}${s.featured ? ' <span class="fc-star" title="Lugar em destaque">⭐</span>' : ""}</div>
-          <div class="fc-meta"><button class="link-author" data-user="${esc(s.author)}">${authorAvatar}@${esc(s.author)}</button> · ${s.comments.length} comentários</div>
+          <div class="fc-meta"><button class="link-author" data-user="${esc(s.author)}">${authorAvatar}@${esc(s.author)}</button> · ${s.comment_count ?? s.comments.length} comentários</div>
           ${dist}
         </div>
         <button class="fc-like${s.liked ? " liked" : ""}" data-id="${s.id}" title="Curtir">♥ <span>${s.like_count}</span></button>
@@ -1168,8 +1168,8 @@ async function openSpotDetail(id) {
   Telemetry.track("open_spot", { spot: id });
   try {
     const q = `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}`;
-    const data = await api("/spots" + q);
-    const spot = data.spots.find((s) => s.id === id);
+    const data = await api("/spots/" + id + q);
+    const spot = data.spot;
     if (!spot) return;
     showSpotModal(spot);
   } catch (e) {

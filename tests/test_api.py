@@ -513,18 +513,16 @@ class ApiTestCase(unittest.TestCase):
         _, _, data = self.call(f"/api/spots/{spot_id}/comments", "POST", {"text": "que lugar"}, fan)
         comment_id = data.get("comment_id")
         if comment_id is None:
-            status, _, feed = self.call(f"/api/spots?lat=-22.95&lng=-43.21")
-            spot = next(s for s in feed["spots"] if s["id"] == spot_id)
-            comment_id = spot["comments"][0]["id"]
+            _, _, detail = self.call(f"/api/spots/{spot_id}?lat=-22.95&lng=-43.21")
+            comment_id = detail["spot"]["comments"][0]["id"]
         intruder = self.register("gustavo")
         status, _, _ = self.call(f"/api/comments/{comment_id}", "DELETE", cookie=intruder)
         self.assertEqual(status, 403)
         status, _, _ = self.call(f"/api/comments/{comment_id}", "DELETE", cookie=fan)
         self.assertEqual(status, 200)
         self.call(f"/api/spots/{spot_id}/comments", "POST", {"text": "outro"}, fan)
-        _, _, feed = self.call(f"/api/spots?lat=-22.95&lng=-43.21")
-        spot = next(s for s in feed["spots"] if s["id"] == spot_id)
-        comment2 = spot["comments"][0]["id"]
+        _, _, detail = self.call(f"/api/spots/{spot_id}?lat=-22.95&lng=-43.21")
+        comment2 = detail["spot"]["comments"][0]["id"]
         status, _, _ = self.call(f"/api/comments/{comment2}", "DELETE", cookie=author)
         self.assertEqual(status, 200)
 
@@ -615,21 +613,42 @@ class ApiTestCase(unittest.TestCase):
         _, _, data = self.call(f"/api/spots/{spot_id}/comments", "POST", {"text": "original"}, fan)
         comment_id = data.get("comment_id")
         if comment_id is None:
-            _, _, feed = self.call("/api/spots?lat=-22.95&lng=-43.21")
-            spot = next(s for s in feed["spots"] if s["id"] == spot_id)
-            comment_id = spot["comments"][0]["id"]
+            _, _, detail = self.call(f"/api/spots/{spot_id}?lat=-22.95&lng=-43.21")
+            comment_id = detail["spot"]["comments"][0]["id"]
         intruder = self.register("joao")
         status, _, _ = self.call(f"/api/comments/{comment_id}", "PATCH", {"text": "invadido"}, intruder)
         self.assertEqual(status, 403)
         status, _, _ = self.call(f"/api/comments/{comment_id}", "PATCH", {"text": "editado"}, fan)
         self.assertEqual(status, 200)
-        _, _, feed = self.call("/api/spots?lat=-22.95&lng=-43.21", cookie=fan)
-        spot = next(s for s in feed["spots"] if s["id"] == spot_id)
+        _, _, feed = self.call(f"/api/spots/{spot_id}?lat=-22.95&lng=-43.21", cookie=fan)
+        spot = feed["spot"]
         comment = next(c for c in spot["comments"] if c["id"] == comment_id)
         self.assertEqual(comment["text"], "editado")
         self.assertTrue(comment["mine"])
 
-    def test_30_follow_lists(self):
+    def test_30_spot_detail_comment_count(self):
+        author = self.register("maria")
+        _, _, create = self.call(
+            "/api/spots", "POST",
+            {"name": "Parque", "lat": -22.95, "lng": -43.21, "photo": PNG, "radius_m": 500},
+            author,
+        )
+        spot_id = create["spot"]["id"]
+        fan = self.register("nina")
+        for text in ("um", "dois"):
+            self.call(f"/api/spots/{spot_id}/comments", "POST", {"text": text}, fan)
+        _, _, feed = self.call("/api/spots?lat=-22.95&lng=-43.21")
+        spot = next(s for s in feed["spots"] if s["id"] == spot_id)
+        self.assertEqual(spot["comment_count"], 2)
+        self.assertEqual(spot["comments"], [])
+        _, _, detail = self.call(f"/api/spots/{spot_id}?lat=-22.95&lng=-43.21")
+        self.assertEqual(len(detail["spot"]["comments"]), 2)
+        self.assertEqual(detail["spot"]["comment_count"], 2)
+        _, _, profile = self.call("/api/users/maria")
+        row = next(s for s in profile["spots"] if s["id"] == spot_id)
+        self.assertEqual(row["comment_count"], 2)
+
+    def test_31_follow_lists(self):
         a = self.register("kaio")
         b = self.register("lara")
         _, _, pub_kaio = self.call("/api/users/kaio")
@@ -657,6 +676,15 @@ class ApiTestCase(unittest.TestCase):
             "name": "Spot da sugestao",
             "lat": -22.9519,
             "lng": -43.2105,
+            "status": "public",
+            "photo": PNG,
+            "radius_m": 500,
+        }, c2)
+        self.assertEqual(status, 201)
+        status, _, _ = self.call("/api/spots", "POST", {
+            "name": "Segundo spot da sugestao",
+            "lat": -22.9529,
+            "lng": -43.2115,
             "status": "public",
             "photo": PNG,
             "radius_m": 500,

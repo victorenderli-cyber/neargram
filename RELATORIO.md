@@ -236,21 +236,21 @@ Regra-chave (`api_spot_photo`): se o visualizador não é o autor e está fora d
 | `a858836` | **Explorar por região (SW v17, 33 testes):** seletor **🌍 Explorar por região** no mapa com 18 destinos mundiais (Rio, Buenos Aires, NY, Paris, Tóquio, Sydney…); ao escolher, o mapa voa para a região, ativa modo simulação ali e carrega o feed daquela área. Validado via CDP. |
 | `1f0f02c` | **Melhorias (SW v18, 34 testes):** ① aba **Curtidos** no perfil (`liked_spots` em `/api/profile`) com tabs Fotos/Curtidos; ② **galeria em tela cheia** no lightbox com navegação ‹/›, contador e setas de teclado; ③ **cache de fotos offline** no SW (network-first, cache dedicado `neargram-photos`, limite 200); ④ **compressão AVIF/WebP/JPEG** no upload escolhendo o menor; ⑤ **acessibilidade** (`:focus-visible`, `prefers-reduced-motion`, contraste melhorado de `--muted`); ⑥ **i18n pt/en** com botão 🌐 persistente. Validado via CDP. |
 | `bdd2016` | **Salvar lugares, selo de destaque e compartilhar localização (SW v19, 35 testes):** ① botão **🔖 Salvar** nos lugares (tabela `saved_spots`, `POST /api/spots/:id/save`, aba **Salvos** no perfil); ② **selo ⭐ Destaque** para lugares populares (≥ 5 curtidas) no popup e no feed (`featured`); ③ **link de localização** (`#loc=lat,lng`) gerado pelo botão **📍 Compartilhar** (share/clipboard) e tratado no deep link; ④ **empty states** guiados no feed (buscar pessoas / nova foto / explorar região); ⑤ ajustes visuais finos no tema claro (popup, zoom, markers). Validado via CDP. |
-| *(atual)* | **Compartilhar perfil, filtros de feed, Visitei, download, heatmap, tour e exportação (SW v20, 37 testes):** ① **perfil público por link** (`#user=@nome`, botão 🔗 Compartilhar no perfil); ② **filtros rápidos no feed** (✓ Desbloqueados, 🔖 Salvos, 🔥 Mais curtidos — client-side); ③ aba **Visitei** no perfil (`visited_spots` em `/api/profile?lat&lng`, lugares no raio); ④ **download da foto** (⬇️ no lightbox e no modal do lugar); ⑤ **heatmap de curtidas** (camada opcional 🔥 no mapa com círculos por nº de curtidas); ⑥ **onboarding tour** de 4 passos na 1ª visita (persistido); ⑦ **exportar meus dados** (`GET /api/export`, JSON LGPD). Validado via CDP. |
+| `ab38a29` | **Compartilhar perfil, filtros de feed, Visitei, download, heatmap, tour e exportação (SW v20, 37 testes):** ① **perfil público por link** (`#user=@nome`, botão 🔗 Compartilhar no perfil); ② **filtros rápidos no feed** (✓ Desbloqueados, 🔖 Salvos, 🔥 Mais curtidos — client-side); ③ aba **Visitei** no perfil (`visited_spots` em `/api/profile?lat&lng`, lugares no raio); ④ **download da foto** (⬇️ no lightbox e no modal do lugar); ⑤ **heatmap de curtidas** (camada opcional 🔥 no mapa com círculos por nº de curtidas); ⑥ **onboarding tour** de 4 passos na 1ª visita (persistido); ⑦ **exportar meus dados** (`GET /api/export`, JSON LGPD). Validado via CDP. |
+| *(atual)* | **Otimização de payload, seed de bots e push/CDN prontos (SW v21, 38 testes):** ① **feed enxuto** — feed/ranking/perfil/busca agora trazem `comment_count` (sem array de comentários; modal usa novo `GET /api/spots/{id}` só para detalhe); ② **seed de bots** — `_seed_bots_on_start()` popula automaticamente o Postgres em produção (`SEED_BOTS_TARGET`, padrão 120) e `generate_bots.py` criou 378 usuários/953 spots localmente; ③ **chaves VAPID geradas** (`tools/gen_vapid.py`) e documentadas em `.env.example` (backend já lê `VAPID_*`); ④ **Cloudinary documentado** em `.env.example` (código de upload/redirect já pronto); ⑤ **Cache-Control** verificado (gzip + 1 dia para estáticos, no-cache para HTML/JSON). Validado via CDP (feed 20 cards, `comment_count` no meta, modal via detalhe). |
 ---
 
 ## 12. Pendências e melhorias sugeridas
 
-1. **Notificações push ativas em produção**: executar `python tools/gen_vapid.py` e configurar `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` no Render (o backend já está pronto).
-2. **Fotos no Cloudinary em produção**: configurar `CLOUDINARY_CLOUD_NAME` e `CLOUDINARY_UPLOAD_PRESET` (o backend já envia as fotos para lá quando presentes; senão mantém base64).
-3. **Imagens por CDN/S3 genérico** (o Cloudinary é o caminho já implementado; S3/Backblaze seguiriam o mesmo padrão).
-4. Compressão **gzip em imagens** não se aplica (já são JPEG/PNG); otimizar formato (WebP/AVIF) no cliente.
+1. **Configurar env vars no Render** (chaves já geradas e documentadas em `.env.example`): `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (notificações push ativas) e, opcionalmente, `CLOUDINARY_CLOUD_NAME`/`CLOUDINARY_UPLOAD_PRESET` (fotos externas), `SEED_BOTS_TARGET` (seed automático de bots na primeira subida).
+2. **Imagens por CDN/S3 genérico** (o Cloudinary é o caminho já implementado; S3/Backblaze seguiriam o mesmo padrão).
+3. Compressão **gzip em imagens** não se aplica (já são JPEG/PNG); otimizar formato (WebP/AVIF) no cliente (já há compressão AVIF/WebP/JPEG no upload).
 
 ### ✔ Concluídos
 - Domínio próprio **`neargram.duckdns.org`** configurado e funcionando (A record + Custom Domain no Render).
 - Endurecimento da tela preta (erro de boot visível, cache SW v2, fallback `app.js`).
 - **Endurecimento do backend (avaliação):** rate limiting em login/registro (429), expiração de sessões (30 dias) + `Max-Age` no cookie, 500 sem vazar detalhes internos, logs de requisição habilitados, consultas em lote (fim do N+1), paginação (`limit`) em `/api/spots`.
-- **Testes automatizados:** `tests/test_api.py` (24 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit, bio/avatar, follow, notificações, feed "seguindo", denúncia, busca, **gzip/security headers, ordenação por proximidade, push subscribe, paginação, editar spot, excluir comentário, excluir conta, alterar senha**.
+- **Testes automatizados:** `tests/test_api.py` (38 testes, `unittest` puro) — autenticação, geo-fence, foto bloqueada, curtir/comentar/perfil/excluir, sessão expirada, rate limit, bio/avatar, follow, notificações, feed "seguindo", denúncia, busca, **gzip/security headers, ordenação por proximidade, push subscribe, paginação, editar spot, excluir comentário, excluir conta, alterar senha, exportar dados, Visitei, detalhe do lugar (`/api/spots/{id}`) com `comment_count`**.
 - **Redes sociais:** seguidores/follow, perfil público, feed "Seguindo", notificações de curtida/comentário/follow, busca de lugares e usuários.
 - **Perfil rico:** bio e foto de avatar (upload), stats de seguidores/seguindo, **alteração de senha**.
 - **Gestão de conteúdo:** editar spot (nome/descrição/raio), excluir comentário (autor ou dono do spot), excluir conta com confirmação de senha.
@@ -304,7 +304,7 @@ O banco é criado automaticamente na primeira execução (`db.init()`).
 7. **Mapeamento/payload**: `_read_json` carrega o corpo inteiro em memória e `serve_static` lê arquivo inteiro por request (limites já impostos no corpo).
 8. **Área do mapa escura**: se o OSM/tiles estiverem bloqueados pela rede, o mapa vira um bloco preto (pode parecer tela preta).
 9. **Paginação**: implementada com `limit`/`offset`/`has_more` no feed e botão "Carregar mais".
-10. **Testes automatizados**: 23 testes de API passando; testes e2e manuais via Edge headless (CDP) neste ciclo.
+10. **Testes automatizados**: 38 testes de API passando; testes e2e manuais via Edge headless (CDP) neste ciclo.
 
 ### Recomendações por prioridade
 | Prioridade | Ação | Status |
@@ -312,7 +312,7 @@ O banco é criado automaticamente na primeira execução (`db.init()`).
 | Alta | Rate limiting em login/registro; expiração de sessão; parar de vazar erros internos | ✔ feito |
 | Alta | Migrar fotos para armazenamento de objetos (ex.: Cloudinary/S3) com URL no banco | ✔ feito (opt-in Cloudinary; configurar env p/ ativar) |
 | Média | Paginar `/api/spots` e otimizar as consultas (join em vez de N+1) | ✔ feito (paginação `limit`/`offset`/`has_more` + pooling Postgres) |
-| Média | Adicionar testes básicos (`unittest` em `tests/test_api.py`) | ✔ feito (23 testes) |
+| Média | Adicionar testes básicos (`unittest` em `tests/test_api.py`) | ✔ feito (38 testes) |
 | Média | Logging de requisições | ✔ feito (logs estruturados JSON) |
 | Baixa | Compressão da imagem no cliente antes do upload | ✔ feito (canvas → JPEG 1280px/512px) |
 | Baixa | gzip nas respostas | ✔ feito (JSON + estáticos) |
