@@ -487,6 +487,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_user_profile(query)
             elif method == "POST" and path.startswith("/api/users/") and path.endswith("/follow"):
                 self.api_follow()
+            elif method == "GET" and path == "/api/spots/ranked":
+                self.api_spots_ranked(query)
             elif method == "GET" and path == "/api/spots":
                 self.api_spots(query)
             elif method == "GET" and path.startswith("/api/spots/") and path.endswith("/photo"):
@@ -1188,6 +1190,34 @@ class Handler(BaseHTTPRequestHandler):
         page = spots[offset:offset + limit]
         has_more = (offset + len(page)) < len(spots)
         self._send(200, {"spots": page, "radius_m": DEFAULT_RADIUS_M, "has_more": has_more})
+
+    def api_spots_ranked(self, query):
+        viewer = get_user_by_token(self._get_token())
+        viewer_id = viewer["id"] if viewer else None
+        limit = 10
+        if query.get("limit"):
+            try:
+                limit = max(1, min(int(query["limit"][0]), 50))
+            except ValueError:
+                raise ValueError("limit inválido")
+        conn = db.connect()
+        try:
+            rows = db.execute(
+                conn,
+                """SELECT sp.* FROM spots sp
+                   LEFT JOIN likes l ON l.spot_id = sp.id
+                   GROUP BY sp.id
+                   ORDER BY COUNT(l.spot_id) DESC, sp.created_at DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        finally:
+            conn.close()
+        spots = _bulk_public(rows, viewer_id, None, None)
+        for s in spots:
+            s["unlocked"] = None
+            s["distance_m"] = None
+        self._send(200, {"spots": spots})
 
     def api_create_spot(self):
         user = get_user_by_token(self._get_token())

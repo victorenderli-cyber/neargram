@@ -153,6 +153,22 @@ class ApiTestCase(unittest.TestCase):
         status, _, data = self.call(f"/api/spots/{spot_id}/photo?lat=-23.0&lng=-44.0")
         self.assertEqual(status, 404)
 
+    def test_07b_ranked_top_by_likes(self):
+        a = self.register("ruth")
+        b = self.register("sammy")
+        _, _, s1 = self.call("/api/spots", "POST", {"name": "Top1", "lat": -23.0, "lng": -44.0, "photo": PNG}, a)
+        _, _, s2 = self.call("/api/spots", "POST", {"name": "Top2", "lat": -23.0, "lng": -44.0, "photo": PNG}, b)
+        _, _, s3 = self.call("/api/spots", "POST", {"name": "Top3", "lat": -23.0, "lng": -44.0, "photo": PNG}, a)
+        self.call(f"/api/spots/{s3['spot']['id']}/like", "POST", {}, b)
+        self.call(f"/api/spots/{s3['spot']['id']}/like", "POST", {}, a)
+        self.call(f"/api/spots/{s2['spot']['id']}/like", "POST", {}, a)
+        status, _, data = self.call("/api/spots/ranked")
+        self.assertEqual(status, 200)
+        names = [s["name"] for s in data["spots"]]
+        self.assertEqual(names[0], "Top3")
+        self.assertEqual(names[1], "Top2")
+        self.assertEqual(data["spots"][0]["like_count"], 2)
+
     def test_08_expired_session_is_ignored(self):
         cookie = self.register("ivyrose")
         status, _, data = self.call("/api/me", cookie=cookie)

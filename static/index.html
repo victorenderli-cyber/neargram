@@ -103,7 +103,9 @@
         <div id="suggested-users-list" class="suggested-carousel"></div>
       </div>
 
-      <h2>Lugares <span id="feed-count"></span></h2>
+      <h2>Lugares <span id="feed-count"></span>
+        <button id="btn-ranking" class="btn-sm-text" title="Top lugares mais curtidos">🏆 Ranking</button>
+      </h2>
       <div id="feed"></div>
     </section>
   </main>
@@ -187,6 +189,15 @@
       </div>
       <div id="edit-error" class="error hidden"></div>
     </div>
+  </div>
+</div>
+
+<div id="modal-ranking" class="modal hidden" role="dialog" aria-modal="true" aria-label="Ranking de lugares">
+  <div class="modal-box">
+    <div class="modal-head"><h3>🏆 Top lugares</h3><button class="btn-close" data-close>×</button></div>
+    <div id="ranking-loading" class="hint">Carregando…</div>
+    <div id="ranking-list"></div>
+    <p id="ranking-empty" class="hint hidden">Nenhum lugar ainda. Seja o primeiro a publicar! 📸</p>
   </div>
 </div>
 

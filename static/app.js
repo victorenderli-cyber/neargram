@@ -1324,6 +1324,49 @@ async function loadSuggestedUsers() {
 
 $("btn-refresh-suggested")?.addEventListener("click", loadSuggestedUsers);
 
+/* ---------------- Ranking de lugares ---------------- */
+async function loadRanking() {
+  const list = $("ranking-list");
+  const empty = $("ranking-empty");
+  const loading = $("ranking-loading");
+  list.innerHTML = "";
+  empty.classList.add("hidden");
+  loading.classList.remove("hidden");
+  try {
+    const d = await api("/spots/ranked?limit=10");
+    loading.classList.add("hidden");
+    if (!d.spots || !d.spots.length) {
+      empty.classList.remove("hidden");
+      return;
+    }
+    d.spots.forEach((s, i) => {
+      const card = document.createElement("button");
+      card.className = "rank-card";
+      const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}º`;
+      card.innerHTML = `
+        <span class="rank-medal">${medal}</span>
+        <span class="rank-name">${esc(s.name)}</span>
+        <span class="rank-author">@${esc(s.author)}</span>
+        <span class="rank-likes">❤ ${s.like_count}</span>
+      `;
+      card.addEventListener("click", () => {
+        hideModal("modal-ranking");
+        openSpotDetail(s.id);
+      });
+      list.appendChild(card);
+    });
+  } catch (e) {
+    loading.classList.add("hidden");
+    empty.textContent = "Não foi possível carregar o ranking.";
+    empty.classList.remove("hidden");
+  }
+}
+
+$("btn-ranking").addEventListener("click", () => {
+  showModal("modal-ranking");
+  loadRanking();
+});
+
 /* ---------------- Public user profile & follow ---------------- */
 async function openUserProfile(username) {
   try {

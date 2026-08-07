@@ -782,3 +782,19 @@ html[data-theme="light"] .suggested-card {
   background: #f4f4f8;
   border-color: #e0e0e6;
 }
+
+/* ---------- Ranking ---------- */
+#feed-section h2 { display: flex; align-items: center; gap: 8px; }
+#btn-ranking { margin-left: auto; }
+#ranking-list { max-height: 55vh; overflow-y: auto; padding-right: 4px; }
+.rank-card {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: var(--panel2); color: var(--text); border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px; padding: 12px; margin-bottom: 8px; cursor: pointer; transition: .2s;
+}
+.rank-card:hover { border-color: rgba(255,255,255,.2); transform: translateY(-2px); }
+.rank-card .rank-medal { font-size: 20px; min-width: 30px; text-align: center; }
+.rank-card .rank-name { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-card .rank-author { font-size: 12px; color: var(--muted); }
+.rank-card .rank-likes { font-size: 13px; font-weight: 600; color: #ff4d6d; }
+html[data-theme="light"] .rank-card { background: #f4f4f8; border-color: #e0e0e6; }
