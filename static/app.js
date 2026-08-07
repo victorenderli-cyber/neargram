@@ -200,6 +200,18 @@ function initTiles() {
     { position: "topleft" }
   ).addTo(state.map);
   L.control.scale({ imperial: false, position: "bottomright" }).addTo(state.map);
+
+  // Restaura a camada favorita da última sessão (Satélite padrão).
+  const saved = localStorage.getItem("ng-map-layer");
+  if (saved === "street") {
+    state.map.removeLayer(state.tileLayer);
+    state.map.removeLayer(state.labelsLayer);
+    state.streetLayer.addTo(state.map);
+  }
+  state.map.on("baselayerchange", () => {
+    const cur = state.streetLayer._map ? "street" : "satellite";
+    localStorage.setItem("ng-map-layer", cur);
+  });
 }
 
 $("btn-theme").addEventListener("click", () => {
@@ -545,6 +557,12 @@ document.querySelectorAll('input[name="mode"]').forEach((r) =>
     if (state.map) {
       state.map.off("click");
       if (state.mode === "sim") {
+        const saved = _savedMapPos();
+        if (saved) {
+          setPosition(saved.lat, saved.lng, true);
+          setModeLabel("📌 Simulação: clique no mapa para se posicionar");
+          return;
+        }
         state.map.on("click", (ev) => {
           setPosition(ev.latlng.lat, ev.latlng.lng, true);
         });
@@ -566,6 +584,14 @@ function startPositioning() {
     setPosition(pos.coords.latitude, pos.coords.longitude, false);
   }
   function posSim() {
+    const saved = _savedMapPos();
+    if (saved && state.map) {
+      setPosition(saved.lat, saved.lng, true);
+      state.map.setView([saved.lat, saved.lng], saved.zoom || 14);
+      setModeLabel("📌 Última posição restaurada (modo simulação)");
+      $("map-loading").style.display = "none";
+      return;
+    }
     $("map-loading").textContent = "Modo simulação: clique no mapa para se posicionar";
     $("map-loading").style.display = "flex";
     state.map.on("click", (ev) => {
@@ -605,7 +631,9 @@ function setPosition(lat, lng, fromSim) {
   state.currentPos = { lat, lng };
   if (state.youMarker) state.youMarker.remove();
   state.youMarker = L.marker([lat, lng], { icon: youIcon() }).addTo(state.map);
-  state.map.setView([lat, lng], Math.max(state.map.getZoom(), 14));
+  const targetZoom = Math.max(state.map.getZoom(), 14);
+  state.map.setView([lat, lng], targetZoom);
+  try { localStorage.setItem("ng-map-pos", JSON.stringify({ lat, lng, zoom: targetZoom })); } catch (_) {}
   $("pos-info").textContent = fromSim
     ? `Posição simulada: ${lat.toFixed(5)}, ${lng.toFixed(5)}`
     : `Posição real: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
@@ -614,6 +642,16 @@ function setPosition(lat, lng, fromSim) {
 
 function youIcon() {
   return L.divIcon({ className: "marker-you", iconSize: [18, 18], iconAnchor: [9, 9] });
+}
+
+function _savedMapPos() {
+  try {
+    const raw = localStorage.getItem("ng-map-pos");
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (typeof p.lat === "number" && typeof p.lng === "number") return p;
+  } catch (_) {}
+  return null;
 }
 
 /* ---------------- Spots ---------------- */
