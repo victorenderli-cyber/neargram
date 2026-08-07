@@ -13,6 +13,7 @@ let state = {
   currentPos: null, // {lat, lng}
   selectedSpotId: null,
   feedMode: "all", // all | following
+  feedFilter: null, // null | unlocked | saved | top
   offset: 0,
   hasMore: false,
 };
@@ -39,6 +40,10 @@ const I18N = {
     photos: "Fotos",
     liked: "Curtidos",
     saved: "Salvos",
+    visited: "Visitei",
+    "filter-unlocked": "✓ Desbloqueados",
+    "filter-saved": "🔖 Salvos",
+    "filter-top": "🔥 Mais curtidos",
     "btn-profile": "Perfil",
     logout: "Sair",
     search: "🔍 Buscar",
@@ -62,6 +67,10 @@ const I18N = {
     photos: "Photos",
     liked: "Liked",
     saved: "Saved",
+    visited: "Visited",
+    "filter-unlocked": "✓ Unlocked",
+    "filter-saved": "🔖 Saved",
+    "filter-top": "🔥 Top liked",
     "btn-profile": "Profile",
     logout: "Log out",
     search: "🔍 Search",
@@ -468,7 +477,8 @@ function renderProfileGrid(gridId, emptyId, spots, mine) {
 
 async function openOwnProfile() {
   try {
-    const p = await api("/profile");
+    const posQ = state.currentPos ? `?lat=${state.currentPos.lat}&lng=${state.currentPos.lng}` : "";
+    const p = await api("/profile" + posQ);
     $("profile-title").textContent = "@" + p.user.username;
     setAvatar("profile-avatar", p.user.avatar);
     $("profile-bio").textContent = p.user.bio || "Sem biografia ainda.";
@@ -482,8 +492,11 @@ async function openOwnProfile() {
     state.mySpots = p.spots || [];
     state.myLiked = p.liked_spots || [];
     state.mySaved = p.saved_spots || [];
+    state.myVisited = p.visited_spots || [];
     const likedEmpty = $("profile-liked-empty");
     if (likedEmpty) likedEmpty.classList.toggle("hidden", state.myLiked.length > 0);
+    const visitedEmpty = $("profile-visited-empty");
+    if (visitedEmpty) visitedEmpty.classList.toggle("hidden", state.myVisited.length > 0);
     $("profile-edit").classList.add("hidden");
     $("bio-input").value = p.user.bio || "";
     hideError("profile-error");
@@ -497,22 +510,28 @@ $("btn-profile").addEventListener("click", openOwnProfile);
 $("tab-my-spots").addEventListener("click", () => setProfileTab("spots"));
 $("tab-my-liked").addEventListener("click", () => setProfileTab("liked"));
 $("tab-my-saved").addEventListener("click", () => setProfileTab("saved"));
+$("tab-my-visited").addEventListener("click", () => setProfileTab("visited"));
 
 function setProfileTab(tab) {
   const spots = tab === "spots";
   $("tab-my-spots").classList.toggle("active", spots);
   $("tab-my-liked").classList.toggle("active", tab === "liked");
   $("tab-my-saved").classList.toggle("active", tab === "saved");
+  $("tab-my-visited").classList.toggle("active", tab === "visited");
   $("profile-empty").classList.toggle("hidden", spots);
   $("profile-liked-empty").classList.toggle("hidden", tab !== "liked");
   $("profile-saved-empty").classList.toggle("hidden", tab !== "saved");
+  $("profile-visited-empty").classList.toggle("hidden", tab !== "visited");
   let list = [];
   if (tab === "spots") list = state.mySpots || [];
   else if (tab === "liked") list = state.myLiked || [];
-  else list = state.mySaved || [];
-  renderProfileGrid("profile-spots", tab === "liked" ? "profile-liked-empty" : tab === "saved" ? "profile-saved-empty" : "profile-empty", list, tab === "spots");
+  else if (tab === "saved") list = state.mySaved || [];
+  else list = state.myVisited || [];
+  const emptyId = tab === "liked" ? "profile-liked-empty" : tab === "saved" ? "profile-saved-empty" : tab === "visited" ? "profile-visited-empty" : "profile-empty";
+  renderProfileGrid("profile-spots", emptyId, list, tab === "spots");
   $("profile-liked-empty").classList.toggle("hidden", tab !== "liked" || list.length > 0);
   $("profile-saved-empty").classList.toggle("hidden", tab !== "saved" || list.length > 0);
+  $("profile-visited-empty").classList.toggle("hidden", tab !== "visited" || list.length > 0);
 }
 
 $("btn-edit-profile").addEventListener("click", () => {
@@ -563,6 +582,31 @@ async function deleteSpot(id) {
     alert(e.message);
   }
 }
+
+/* ---------------- Exportar meus dados (LGPD) ---------------- */
+$("btn-export-data").addEventListener("click", async () => {
+  const btn = $("btn-export-data");
+  btn.disabled = true;
+  btn.textContent = "Exportando…";
+  try {
+    const data = await api("/export");
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `neargram-meus-dados-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast("Seus dados foram baixados!", "ok");
+    Telemetry.track("export_data", {});
+  } catch (e) {
+    toast(e.message, "err");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "📦 Exportar meus dados";
+  }
+});
 
 /* ---------------- Excluir conta ---------------- */
 $("btn-show-delete-account").addEventListener("click", () => {
@@ -633,6 +677,7 @@ async function boot() {
   populateExploreRegions();
   startPositioning();
   handleDeepLink();
+  maybeShowTour();
 }
 
 function showAuth() {
@@ -923,7 +968,39 @@ function renderMapMarkers() {
     marker.on("click", (e) => e.target.openPopup());
     state.clusterGroup.addLayer(marker);
   });
+  renderHeatmap();
 }
+
+/* ---------------- Heatmap de curtidas ---------------- */
+function renderHeatmap() {
+  if (!state.heatLayer || !state.heatOn) return;
+  state.heatLayer.clearLayers();
+  state.spots.forEach((s) => {
+    const c = s.like_count || 0;
+    if (c <= 0) return;
+    const r = 60 + c * 10;
+    const color = c >= 10 ? "#ff2d55" : c >= 5 ? "#ff9500" : "#ffd60a";
+    L.circle([s.lat, s.lng], {
+      radius: r,
+      color: color,
+      weight: 1,
+      fillColor: color,
+      fillOpacity: Math.min(0.35 + c * 0.03, 0.65),
+    }).addTo(state.heatLayer);
+  });
+}
+
+function toggleHeatmap() {
+  if (!state.heatLayer) {
+    state.heatLayer = L.layerGroup().addTo(state.map);
+  }
+  state.heatOn = !state.heatOn;
+  $("btn-heatmap").classList.toggle("active", state.heatOn);
+  if (state.heatOn) renderHeatmap();
+  else state.heatLayer.clearLayers();
+  Telemetry.track("heatmap", { on: !!state.heatOn });
+}
+$("btn-heatmap").addEventListener("click", toggleHeatmap);
 
 function popupHtml(s) {
   const unlocked = s.unlocked === true;
@@ -974,7 +1051,8 @@ function renderIcon(s) {
 function renderFeed() {
   const feed = $("feed");
   feed.innerHTML = "";
-  $("feed-count").textContent = `(${state.spots.length})`;
+  const list = applyFeedFilter(state.spots);
+  $("feed-count").textContent = `(${list.length})`;
   if (!state.spots.length) {
     feed.innerHTML = state.feedMode === "following"
       ? `<div class="feed-card empty-card">
@@ -1000,7 +1078,15 @@ function renderFeed() {
     if (el) el.addEventListener("click", () => $("explore-select")?.focus());
     return;
   }
-  state.spots.forEach((s, idx) => {
+  if (!list.length) {
+    feed.innerHTML = `<div class="feed-card empty-card">
+      <div class="empty-emoji">🔍</div>
+      <div class="empty-title">Nenhum lugar neste filtro</div>
+      <p class="empty-sub">Mude o filtro acima ou mova o mapa para explorar outros lugares.</p>
+    </div>`;
+    return;
+  }
+  list.forEach((s, idx) => {
     const card = document.createElement("div");
     card.className = "feed-card";
     const unlocked = s.unlocked === true;
@@ -1117,6 +1203,9 @@ async function showSpotModal(spot) {
       ? "Esta foto é privada e só aparece para quem está no local. Para desbloquear, vá até o lugar."
       : `Você está a ${fmtDistance(spot.distance_m)} de distância. Aproxime-se (dentro de ${spot.radius_m} m) para revelar a foto.`;
   }
+  const dlBtn = $("btn-download-spot");
+  dlBtn.classList.toggle("hidden", !unlocked);
+  dlBtn.onclick = () => downloadPhoto(unlocked ? spot.photo : null);
   $("spot-meta").innerHTML = `Publicado por <button class="link-author" data-user="${esc(spot.author)}">@${esc(spot.author)}</button> · ${fmtDate(spot.created_at)} · raio ${spot.radius_m} m`;
   const metaAuthor = $("spot-meta").querySelector(".link-author");
   if (metaAuthor) metaAuthor.addEventListener("click", () => { hideModal("modal-spot"); openUserProfile(metaAuthor.dataset.user); });
@@ -1681,6 +1770,25 @@ $("btn-manage-profile").addEventListener("click", () => {
   openOwnProfile();
 });
 
+$("btn-share-user").addEventListener("click", async () => {
+  const u = window._userProfile;
+  if (!u) return;
+  const url = `${location.origin}/#user=${encodeURIComponent(u.username)}`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: "NearGram", text: `Veja o perfil de @${u.username}`, url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    toast("Link do perfil copiado!", "ok");
+  } catch (e) {
+    if (e && e.name === "AbortError") return;
+    const ok = prompt("Copie o link do perfil:", url);
+    if (ok) toast("Link do perfil copiado!", "ok");
+  }
+  Telemetry.track("share_user", { user: u.username });
+});
+
 /* ---------------- Feed tabs ---------------- */
 $("tab-feed-all").addEventListener("click", () => setFeed("all"));
 $("tab-feed-following").addEventListener("click", () => setFeed("following"));
@@ -1689,6 +1797,28 @@ function setFeed(mode) {
   $("tab-feed-all").classList.toggle("active", mode === "all");
   $("tab-feed-following").classList.toggle("active", mode === "following");
   refreshSpots();
+}
+
+/* ---------------- Feed filters (client-side) ---------------- */
+$("filter-unlocked").addEventListener("click", () => setFeedFilter("unlocked"));
+$("filter-saved").addEventListener("click", () => setFeedFilter("saved"));
+$("filter-top").addEventListener("click", () => setFeedFilter("top"));
+
+function setFeedFilter(filter) {
+  state.feedFilter = state.feedFilter === filter ? null : filter;
+  $("filter-unlocked").classList.toggle("active", state.feedFilter === "unlocked");
+  $("filter-saved").classList.toggle("active", state.feedFilter === "saved");
+  $("filter-top").classList.toggle("active", state.feedFilter === "top");
+  renderFeed();
+  Telemetry.track("feed_filter", { filter: state.feedFilter || "all" });
+}
+
+function applyFeedFilter(spots) {
+  if (!state.feedFilter) return spots;
+  if (state.feedFilter === "unlocked") return spots.filter((s) => s.unlocked === true);
+  if (state.feedFilter === "saved") return spots.filter((s) => s.saved);
+  if (state.feedFilter === "top") return spots.slice().sort((a, b) => (b.like_count || 0) - (a.like_count || 0));
+  return spots;
 }
 
 /* ---------------- Deep link (#spot=ID ou #loc=lat,lng) ---------------- */
@@ -1714,6 +1844,19 @@ function handleDeepLink() {
     }
     return;
   }
+  const um = location.hash.match(/^#user=(.+)$/);
+  if (um) {
+    const username = decodeURIComponent(um[1]);
+    const tryOpenUser = () => {
+      if (state.map) { openUserProfile(username); return true; }
+      return false;
+    };
+    if (!tryOpenUser()) {
+      const iv = setInterval(() => { if (tryOpenUser()) clearInterval(iv); }, 500);
+      setTimeout(() => clearInterval(iv), 20000);
+    }
+    return;
+  }
   const m = location.hash.match(/^#spot=(\d+)$/);
   if (!m) return;
   const id = parseInt(m[1], 10);
@@ -1725,6 +1868,63 @@ function handleDeepLink() {
     const iv = setInterval(() => { if (tryOpen()) clearInterval(iv); }, 500);
     setTimeout(() => clearInterval(iv), 20000);
   }
+}
+
+/* ---------------- Onboarding tour (1ª visita) ---------------- */
+const TOUR_STEPS = [
+  {
+    emoji: "📍",
+    title: "Bem-vindo ao NearGram!",
+    text: "Fotos de lugares só são reveladas quando você está perto delas. O mapa mostra o que está ao redor de você.",
+  },
+  {
+    emoji: "🗺️",
+    title: "Clique no mapa",
+    text: "Use o modo simulação (ou o GPS) para se mover. Lugares 🔒 abrem quando você entra no raio de desbloqueio.",
+  },
+  {
+    emoji: "📸",
+    title: "Publique uma foto",
+    text: "Toque em ＋ Nova foto para registrar um lugar perto de você e definir o raio em que ele pode ser visto.",
+  },
+  {
+    emoji: "🔖",
+    title: "Salve e compartilhe",
+    text: "Salve lugares para visitar depois, compartilhe sua localização e explore regiões do mundo pelo seletor 🌍.",
+  },
+];
+let _tourIdx = 0;
+
+function maybeShowTour() {
+  try {
+    if (localStorage.getItem("ng-tour-done")) return;
+  } catch (_) {}
+  _tourIdx = 0;
+  renderTour();
+  $("tour-overlay").classList.remove("hidden");
+}
+
+function renderTour() {
+  const step = TOUR_STEPS[_tourIdx];
+  $("tour-emoji").textContent = step.emoji;
+  $("tour-title").textContent = step.title;
+  $("tour-text").textContent = step.text;
+  $("tour-dots").innerHTML = TOUR_STEPS.map((_, i) =>
+    `<span class="tour-dot${i === _tourIdx ? " active" : ""}"></span>`
+  ).join("");
+  $("tour-next").textContent = _tourIdx === TOUR_STEPS.length - 1 ? "Começar!" : "Continuar";
+}
+
+$("tour-next").addEventListener("click", () => {
+  _tourIdx++;
+  if (_tourIdx >= TOUR_STEPS.length) return closeTour();
+  renderTour();
+});
+$("tour-skip").addEventListener("click", closeTour);
+function closeTour() {
+  $("tour-overlay").classList.add("hidden");
+  try { localStorage.setItem("ng-tour-done", "1"); } catch (_) {}
+  Telemetry.track("tour_done", { steps: _tourIdx + 1 });
 }
 
 /* ---------------- Modal helpers ---------------- */
@@ -1775,7 +1975,43 @@ function lbNext() { if (_galleryIdx < _galleryList.length - 1) { _galleryIdx++; 
 
 $("lb-prev").addEventListener("click", (e) => { e.stopPropagation(); lbPrev(); });
 $("lb-next").addEventListener("click", (e) => { e.stopPropagation(); lbNext(); });
+$("lb-download").addEventListener("click", (e) => {
+  e.stopPropagation();
+  downloadPhoto($("lightbox-img").src);
+});
 $("lightbox").addEventListener("click", () => $("lightbox").classList.add("hidden"));
+
+async function downloadPhoto(src) {
+  if (!src) return;
+  try {
+    const a = document.createElement("a");
+    if (src.startsWith("data:")) {
+      const m = src.match(/^data:([^;,]+)[;,]base64,(.+)$/);
+      if (!m) throw new Error("formato de imagem inválido");
+      const bin = atob(m[2]);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], { type: m[1] });
+      a.href = URL.createObjectURL(blob);
+      a.download = `neargram-${Date.now()}.${(m[1].split("/")[1] || "jpg").replace("jpeg", "jpg")}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      return;
+    }
+    const res = await fetch(src, { credentials: "same-origin" });
+    if (!res.ok) throw new Error("não foi possível baixar");
+    const blob = await res.blob();
+    a.href = URL.createObjectURL(blob);
+    a.download = `neargram-${Date.now()}.${(blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg")}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    Telemetry.track("download_photo", {});
+  } catch (err) {
+    toast("Erro ao baixar a foto: " + err.message, "err");
+  }
+}
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") $("lightbox").classList.add("hidden");
   if ($("lightbox").classList.contains("hidden")) return;

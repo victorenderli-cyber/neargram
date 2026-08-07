@@ -30,7 +30,20 @@
   <img id="lightbox-img" alt="Foto ampliada" />
   <button id="lb-prev" class="lb-nav" title="Anterior" aria-label="Foto anterior">‹</button>
   <button id="lb-next" class="lb-nav" title="Próxima" aria-label="Próxima foto">›</button>
+  <button id="lb-download" class="lb-download" title="Baixar foto" aria-label="Baixar foto">⬇️</button>
   <span id="lb-counter" class="lb-counter"></span>
+</div>
+<div id="tour-overlay" class="tour-overlay hidden" role="dialog" aria-modal="true" aria-label="Tour do NearGram">
+  <div class="tour-card">
+    <div class="tour-emoji" id="tour-emoji">📍</div>
+    <div class="tour-title" id="tour-title"></div>
+    <p class="tour-text" id="tour-text"></p>
+    <div class="tour-dots" id="tour-dots"></div>
+    <div class="tour-actions">
+      <button id="tour-skip" class="btn-secondary">Pular</button>
+      <button id="tour-next" class="btn-primary">Continuar</button>
+    </div>
+  </div>
 </div>
 <div id="consent-banner" role="region" aria-label="Aviso de privacidade">
   <p>🔒 Respeitamos sua privacidade. Com a sua permissão, coletamos <b>eventos de uso</b>, <b>erros</b>, <b>dados do dispositivo</b> e <b>localização aproximada</b> (precisão de ~1 km) para melhorar o NearGram. Nada é enviado sem o seu aceite, e você pode desativar quando quiser.</p>
@@ -88,6 +101,7 @@
       <div id="map-loading" class="overlay-msg" data-i18n="loading-map">Carregando mapa…</div>
       <div class="map-controls">
         <button id="btn-locate" data-i18n="center" title="Centralizar na minha posição" aria-label="Centralizar na minha posição">📍 Centralizar</button>
+        <button id="btn-heatmap" title="Mostrar mapa de calor de curtidas" aria-label="Mostrar mapa de calor de curtidas">🔥 Curtidas</button>
         <button id="btn-new" class="btn-primary" data-i18n="new-photo" title="Publicar foto de um lugar">＋ Nova foto</button>
       </div>
       <div class="map-controls explore-control">
@@ -105,6 +119,11 @@
       <div class="feed-tabs">
         <button id="tab-feed-all" class="feed-tab active" data-i18n="feed-all">Todos</button>
         <button id="tab-feed-following" class="feed-tab" data-i18n="feed-following">Seguindo</button>
+      </div>
+      <div class="feed-filters">
+        <button id="filter-unlocked" class="feed-filter" data-i18n="filter-unlocked" title="Só lugares desbloqueados perto de você">✓ Desbloqueados</button>
+        <button id="filter-saved" class="feed-filter" data-i18n="filter-saved" title="Só lugares salvos">🔖 Salvos</button>
+        <button id="filter-top" class="feed-filter" data-i18n="filter-top" title="Mais curtidos primeiro">🔥 Mais curtidos</button>
       </div>
       
       <div id="suggested-users-section" class="suggested-box hidden">
@@ -169,6 +188,7 @@
       <span id="spot-distance"></span>
       <button id="btn-goto-map" title="Ver no mapa">🗺️</button>
       <button id="btn-share" title="Compartilhar link">🔗</button>
+      <button id="btn-download-spot" class="hidden" title="Baixar foto">⬇️</button>
       <button id="btn-report" title="Denunciar conteúdo">🚩</button>
     </div>
     <div id="report-box" class="hidden">
@@ -233,14 +253,17 @@
     <div id="profile-stats" class="profile-stats"></div>
     <div class="profile-tabs">
       <button id="tab-my-spots" class="profile-tab active" data-i18n="photos">Fotos</button>
+      <button id="tab-my-visited" class="profile-tab" data-i18n="visited">Visitei</button>
       <button id="tab-my-liked" class="profile-tab" data-i18n="liked">Curtidos</button>
       <button id="tab-my-saved" class="profile-tab" data-i18n="saved">Salvos</button>
     </div>
     <div id="profile-spots" class="profile-grid"></div>
     <p id="profile-empty" class="hint">Você ainda não publicou nenhuma foto. Toque em <b>＋ Nova foto</b> no mapa!</p>
+    <p id="profile-visited-empty" class="hint hidden">Nenhum lugar desbloqueado por aqui ainda. Aproxime-se de lugares 🔒 no mapa para vê-los!</p>
     <p id="profile-liked-empty" class="hint hidden">Você ainda não curtiu nenhum lugar. Toque em ❤ nos lugares que gostou!</p>
     <p id="profile-saved-empty" class="hint hidden">Você ainda não salvou nenhum lugar. Use 🔖 Salvar nos lugares que quer visitar!</p>
     <div class="change-pass">
+      <button id="btn-export-data" class="btn-secondary" title="Baixar seus dados em JSON (LGPD)">📦 Exportar meus dados</button>
       <button id="btn-show-change-pass" class="btn-primary">🔑 Alterar senha</button>
       <div id="change-pass-box" class="hidden">
         <input id="cp-current" type="password" placeholder="Senha atual" autocomplete="current-password" minlength="6" required />
@@ -286,6 +309,7 @@
         <div id="user-bio" class="profile-bio"></div>
         <button id="btn-follow" class="btn-primary">Seguir</button>
         <div id="user-self-actions" class="hidden"><button id="btn-manage-profile" class="btn-secondary">⚙️ Gerenciar meu perfil</button></div>
+        <button id="btn-share-user" class="btn-sm-text" title="Compartilhar perfil">🔗 Compartilhar</button>
         <span id="user-follow-hint" class="hint"></span>
       </div>
     </div>

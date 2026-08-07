@@ -482,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and path == "/api/me":
                 self.api_me()
             elif method == "GET" and path == "/api/profile":
-                self.api_profile()
+                self.api_profile(query)
             elif method == "POST" and path == "/api/profile":
                 self.api_update_profile()
             elif method == "POST" and path == "/api/profile/password":
@@ -531,6 +531,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.api_edit_comment()
             elif method == "DELETE" and path == "/api/me":
                 self.api_delete_account()
+            elif method == "GET" and path == "/api/export":
+                self.api_export()
             elif method == "GET" and path == "/api/push/vapid-public-key":
                 self.api_push_vapid_key()
             elif method == "POST" and path == "/api/push/subscribe":
@@ -608,11 +610,16 @@ class Handler(BaseHTTPRequestHandler):
         conn.close()
         self._send(200, {"ok": True})
 
-    def api_profile(self):
+    def api_profile(self, query):
         user = get_user_by_token(self._get_token())
         if not user:
             self._send(401, {"error": "faça login primeiro"})
             return
+        try:
+            lat = float(query["lat"][0]) if query.get("lat") else None
+            lng = float(query["lng"][0]) if query.get("lng") else None
+        except ValueError:
+            raise ValueError("lat/lng inválidos")
         conn = db.connect()
         rows = db.execute(
             conn, "SELECT * FROM spots WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)
@@ -629,12 +636,20 @@ class Handler(BaseHTTPRequestHandler):
                WHERE sv.user_id = ? ORDER BY sv.created_at DESC LIMIT 100""",
             (user["id"],),
         ).fetchall()
+        visited_rows = []
+        if lat is not None and lng is not None:
+            all_rows = db.execute(conn, "SELECT * FROM spots ORDER BY created_at DESC").fetchall()
+            for s in all_rows:
+                if haversine_m(lat, lng, s["lat"], s["lng"]) <= s["radius_m"]:
+                    visited_rows.append(s)
+            visited_rows = visited_rows[:100]
         followers = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE followee_id = ?", (user["id"],)).fetchone()[0]
         following = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE follower_id = ?", (user["id"],)).fetchone()[0]
         conn.close()
         spots = _bulk_public(rows, user["id"], None, None, as_author=True)
         liked_spots = _bulk_public(liked_rows, user["id"], None, None, as_author=True)
         saved_spots = _bulk_public(saved_rows, user["id"], None, None, as_author=True)
+        visited_spots = _bulk_public(visited_rows, user["id"], lat, lng)
         spots_count = len(spots)
         likes_received = sum(s["like_count"] for s in spots)
         comments_received = sum(len(s["comments"]) for s in spots)
@@ -646,6 +661,7 @@ class Handler(BaseHTTPRequestHandler):
             "spots": spots,
             "liked_spots": liked_spots,
             "saved_spots": saved_spots,
+            "visited_spots": visited_spots,
         })
 
     def api_user_profile(self, query):
@@ -1027,6 +1043,62 @@ class Handler(BaseHTTPRequestHandler):
         conn.close()
         self.pending_cookie = "token=; Max-Age=0; Path=/"
         self._send(200, {"ok": True})
+
+    def api_export(self):
+        user = get_user_by_token(self._get_token())
+        if not user:
+            self._send(401, {"error": "faça login primeiro"})
+            return
+        conn = db.connect()
+        spots = db.execute(
+            conn,
+            "SELECT id, name, description, lat, lng, radius_m, created_at, photo_mime FROM spots WHERE user_id = ? ORDER BY created_at DESC",
+            (user["id"],),
+        ).fetchall()
+        liked = db.execute(
+            conn,
+            """SELECT sp.id, sp.name, sp.created_at AS liked_at FROM likes l JOIN spots sp ON sp.id = l.spot_id
+               WHERE l.user_id = ? ORDER BY l.created_at DESC""",
+            (user["id"],),
+        ).fetchall()
+        saved = db.execute(
+            conn,
+            """SELECT sp.id, sp.name, sv.created_at AS saved_at FROM saved_spots sv JOIN spots sp ON sp.id = sv.spot_id
+               WHERE sv.user_id = ? ORDER BY sv.created_at DESC""",
+            (user["id"],),
+        ).fetchall()
+        follows_out = db.execute(
+            conn,
+            """SELECT u.username FROM follows f JOIN users u ON u.id = f.followee_id WHERE f.follower_id = ? ORDER BY u.username""",
+            (user["id"],),
+        ).fetchall()
+        comments = db.execute(
+            conn,
+            """SELECT c.id, c.spot_id, c.text, c.created_at FROM comments c WHERE c.user_id = ? ORDER BY c.created_at ASC""",
+            (user["id"],),
+        ).fetchall()
+        conn.close()
+        self._send(200, {
+            "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "user": {"id": user["id"], "username": user["username"], "bio": user["bio"] or ""},
+            "spots": [
+                {"id": r["id"], "name": r["name"], "description": r["description"],
+                 "lat": r["lat"], "lng": r["lng"], "radius_m": r["radius_m"],
+                 "created_at": r["created_at"], "photo_mime": r["photo_mime"]}
+                for r in spots
+            ],
+            "liked_spots": [
+                {"id": r["id"], "name": r["name"], "liked_at": r["liked_at"]} for r in liked
+            ],
+            "saved_spots": [
+                {"id": r["id"], "name": r["name"], "saved_at": r["saved_at"]} for r in saved
+            ],
+            "following": [r["username"] for r in follows_out],
+            "comments": [
+                {"id": r["id"], "spot_id": r["spot_id"], "text": r["text"], "created_at": r["created_at"]}
+                for r in comments
+            ],
+        })
 
     def _parse_credentials(self):
         data = self._read_json()

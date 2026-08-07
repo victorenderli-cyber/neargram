@@ -347,6 +347,15 @@ html[data-theme="light"] .marker-you { box-shadow: 0 0 0 2px #fff; }
 #feed-section h2 { font-size: 15px; color: var(--muted); margin: 4px 0 12px; text-transform: uppercase; letter-spacing: 1px; }
 #feed { display: flex; flex-direction: column; gap: 12px; max-height: 62vh; overflow-y: auto; padding-right: 4px; }
 
+.feed-filters { display: flex; gap: 6px; margin: 0 0 10px; flex-wrap: wrap; }
+.feed-filter {
+  font-size: 12px; padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer;
+}
+.feed-filter:hover { border-color: var(--accent); color: var(--text); }
+.feed-filter.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+#btn-heatmap.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
 .empty-card { text-align: center; padding: 26px 18px; cursor: default !important; }
 .empty-card .empty-emoji { font-size: 34px; margin-bottom: 10px; }
 .empty-card .empty-title { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
@@ -718,6 +727,33 @@ html[data-theme="light"] .map-controls { background: rgba(255,255,255,.85); }
   color: rgba(255,255,255,.85); font-size: 14px; z-index: 4001; background: rgba(0,0,0,.5);
   padding: 4px 12px; border-radius: 20px;
 }
+.lb-download {
+  position: fixed; bottom: 18px; right: 18px;
+  background: rgba(255,255,255,.12); color: #fff; border: none;
+  font-size: 20px; width: 46px; height: 46px; border-radius: 50%;
+  cursor: pointer; z-index: 4001; transition: background .2s;
+}
+.lb-download:hover { background: rgba(255,255,255,.28); }
+
+/* ---------- Onboarding tour ---------- */
+.tour-overlay {
+  position: fixed; inset: 0; z-index: 5000;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.tour-overlay.hidden { display: none; }
+.tour-card {
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 16px; padding: 26px; max-width: 360px; width: 100%;
+  text-align: center; box-shadow: 0 16px 60px rgba(0,0,0,.5);
+}
+.tour-emoji { font-size: 42px; margin-bottom: 10px; }
+.tour-title { font-weight: 800; font-size: 18px; margin-bottom: 8px; }
+.tour-text { font-size: 14px; color: var(--muted); line-height: 1.55; margin-bottom: 16px; }
+.tour-dots { display: flex; gap: 6px; justify-content: center; margin-bottom: 18px; }
+.tour-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+.tour-dot.active { background: var(--accent); }
+.tour-actions { display: flex; gap: 10px; justify-content: center; }
 
 /* ---------- Select com tema ---------- */
 select {

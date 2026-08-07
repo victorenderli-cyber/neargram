@@ -197,6 +197,41 @@ class ApiTestCase(unittest.TestCase):
         status, _, _ = self.call(f"/api/spots/{sid}/save", "POST", {})
         self.assertEqual(status, 401)
 
+    def test_07e_export_data(self):
+        a = self.register("dante")
+        _, _, s = self.call(
+            "/api/spots", "POST",
+            {"name": "Exporta", "lat": -23.0, "lng": -44.0, "photo": PNG, "radius_m": 500},
+            a,
+        )
+        self.assertEqual(s["spot"]["id"] > 0, True)
+        status, _, data = self.call("/api/export", cookie=a)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["user"]["username"], "dante")
+        self.assertEqual(len(data["spots"]), 1)
+        self.assertEqual(data["spots"][0]["name"], "Exporta")
+        self.assertIn("exported_at", data)
+        status, _, _ = self.call("/api/export")
+        self.assertEqual(status, 401)
+
+    def test_07f_profile_visited_spots(self):
+        author = self.register("neto")
+        fan = self.register("luana")
+        _, _, s = self.call(
+            "/api/spots", "POST",
+            {"name": "Perto", "lat": -23.0, "lng": -44.0, "photo": PNG, "radius_m": 500},
+            author,
+        )
+        sid = s["spot"]["id"]
+        _, _, prof = self.call("/api/profile?lat=-23.0&lng=-44.0", cookie=fan)
+        ids = [x["id"] for x in prof["visited_spots"]]
+        self.assertIn(sid, ids)
+        _, _, prof2 = self.call("/api/profile", cookie=fan)
+        self.assertEqual(len(prof2["visited_spots"]), 0)
+        _, _, prof3 = self.call("/api/profile?lat=-23.0&lng=-45.0", cookie=fan)
+        ids3 = [x["id"] for x in prof3["visited_spots"]]
+        self.assertNotIn(sid, ids3)
+
     def test_07b_ranked_top_by_likes(self):
         a = self.register("ruth")
         b = self.register("sammy")
