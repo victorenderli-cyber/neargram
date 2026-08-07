@@ -1,4 +1,6 @@
-const CACHE = "neargram-v17";
+const CACHE = "neargram-v18";
+const PHOTO_CACHE = "neargram-photos-v1";
+const PHOTO_MAX = 200;
 const SHELL = [
   "/",
   "/index.html",
@@ -29,7 +31,7 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== PHOTO_CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -42,9 +44,30 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
 
   // não interceptar chamadas de API nem tiles do mapa (OSM, CartoDB, Esri)
-  if (url.pathname.startsWith("/api/") || url.hostname.includes("tile.") || url.hostname.includes("cartocdn") || url.hostname.includes("arcgisonline")) return;
-
+  if (url.hostname.includes("tile.") || url.hostname.includes("cartocdn") || url.hostname.includes("arcgisonline")) return;
   if (e.request.method !== "GET") return;
+
+  // fotos de lugares: network-first com fallback ao cache (offline)
+  if (url.pathname.startsWith("/api/spots/") && url.pathname.endsWith("/photo")) {
+    e.respondWith(
+      fetch(e.request).then((resp) => {
+        if (resp && resp.status === 200) {
+          const clone = resp.clone();
+          caches.open(PHOTO_CACHE).then((c) => {
+            c.keys().then((keys) => {
+              if (keys.length >= PHOTO_MAX) {
+                return c.delete(keys[0]);
+              }
+            }).then(() => c.put(url.pathname, clone));
+          });
+        }
+        return resp;
+      }).catch(() => caches.match(url.pathname).then((c) => c || new Response("", { status: 404 })))
+    );
+    return;
+  }
+
+  if (url.pathname.startsWith("/api/")) return;
 
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true })

@@ -26,7 +26,12 @@
 
 <div id="fatal" class="hidden"></div>
 <div id="toasts" role="status" aria-live="polite"></div>
-<div id="lightbox" class="lightbox hidden" role="dialog" aria-modal="true" aria-label="Foto ampliada"><img id="lightbox-img" alt="Foto ampliada" /></div>
+<div id="lightbox" class="lightbox hidden" role="dialog" aria-modal="true" aria-label="Foto ampliada">
+  <img id="lightbox-img" alt="Foto ampliada" />
+  <button id="lb-prev" class="lb-nav" title="Anterior" aria-label="Foto anterior">‹</button>
+  <button id="lb-next" class="lb-nav" title="Próxima" aria-label="Próxima foto">›</button>
+  <span id="lb-counter" class="lb-counter"></span>
+</div>
 <div id="consent-banner" role="region" aria-label="Aviso de privacidade">
   <p>🔒 Respeitamos sua privacidade. Com a sua permissão, coletamos <b>eventos de uso</b>, <b>erros</b>, <b>dados do dispositivo</b> e <b>localização aproximada</b> (precisão de ~1 km) para melhorar o NearGram. Nada é enviado sem o seu aceite, e você pode desativar quando quiser.</p>
   <div class="consent-actions">
@@ -63,14 +68,15 @@
       <button id="btn-search" title="Buscar lugares e usuários" aria-label="Buscar lugares e usuários">🔍</button>
       <button id="btn-notifs" title="Notificações" aria-label="Notificações">🔔<span id="notif-badge" class="badge hidden"></span></button>
       <button id="btn-theme" title="Alternar tema" aria-label="Alternar tema claro e escuro">🌙</button>
+      <button id="btn-lang" title="Language / Idioma" aria-label="Language / Idioma">🌐</button>
       <button id="btn-install" class="hidden" title="Instalar o app" aria-label="Instalar o app">⬇️</button>
-      <button id="btn-profile" title="Meu perfil">Perfil</button>
-      <button id="btn-logout" title="Sair">Sair</button>
+      <button id="btn-profile" data-i18n="btn-profile" title="Meu perfil">Perfil</button>
+      <button id="btn-logout" data-i18n="logout" title="Sair">Sair</button>
     </div>
   </header>
 
-  <div id="statusbar">
-    <span id="mode-label" class="pill">Buscando sua posição…</span>
+    <div id="statusbar">
+    <span id="mode-label" class="pill" data-i18n="locating">Buscando sua posição…</span>
     <span id="pos-info"></span>
     <div id="radius-hint"></div>
   </div>
@@ -78,38 +84,38 @@
   <main>
     <section id="map-section">
       <div id="map"></div>
-      <div id="map-loading" class="overlay-msg">Carregando mapa…</div>
+      <div id="map-loading" class="overlay-msg" data-i18n="loading-map">Carregando mapa…</div>
       <div class="map-controls">
-        <button id="btn-locate" title="Centralizar na minha posição" aria-label="Centralizar na minha posição">📍 Centralizar</button>
-        <button id="btn-new" class="btn-primary" title="Publicar foto de um lugar">＋ Nova foto</button>
+        <button id="btn-locate" data-i18n="center" title="Centralizar na minha posição" aria-label="Centralizar na minha posição">📍 Centralizar</button>
+        <button id="btn-new" class="btn-primary" data-i18n="new-photo" title="Publicar foto de um lugar">＋ Nova foto</button>
       </div>
       <div class="map-controls explore-control">
         <select id="explore-select" title="Explorar lugares por região" aria-label="Explorar lugares por região">
-          <option value="">🌍 Explorar por região…</option>
+          <option value="" data-i18n="explore">🌍 Explorar por região…</option>
         </select>
       </div>
       <div id="mode-controls" class="map-controls bottom">
-        <label><input type="radio" name="mode" value="real" checked /> Localização real</label>
-        <label><input type="radio" name="mode" value="sim" /> Simular posição (clique no mapa)</label>
+        <label><input type="radio" name="mode" value="real" checked /> <span data-i18n="mode-real">Localização real</span></label>
+        <label><input type="radio" name="mode" value="sim" /> <span data-i18n="mode-sim">Simular posição (clique no mapa)</span></label>
       </div>
     </section>
 
     <section id="feed-section">
       <div class="feed-tabs">
-        <button id="tab-feed-all" class="feed-tab active">Todos</button>
-        <button id="tab-feed-following" class="feed-tab">Seguindo</button>
+        <button id="tab-feed-all" class="feed-tab active" data-i18n="feed-all">Todos</button>
+        <button id="tab-feed-following" class="feed-tab" data-i18n="feed-following">Seguindo</button>
       </div>
       
       <div id="suggested-users-section" class="suggested-box hidden">
         <div class="suggested-head">
-          <h3>✨ Pessoas que talvez conheça</h3>
-          <button id="btn-refresh-suggested" class="btn-sm-text" title="Novas sugestões">🔄 Recarregar</button>
+          <h3 data-i18n="suggested-title">✨ Pessoas que talvez conheça</h3>
+          <button id="btn-refresh-suggested" class="btn-sm-text" title="Novas sugestões" data-i18n="reload">🔄 Recarregar</button>
         </div>
         <div id="suggested-users-list" class="suggested-carousel"></div>
       </div>
 
-      <h2>Lugares <span id="feed-count"></span>
-        <button id="btn-ranking" class="btn-sm-text" title="Top lugares mais curtidos">🏆 Ranking</button>
+      <h2><span data-i18n="places">Lugares</span> <span id="feed-count"></span>
+        <button id="btn-ranking" class="btn-sm-text" data-i18n="ranking" title="Top lugares mais curtidos">🏆 Ranking</button>
       </h2>
       <div id="feed"></div>
     </section>
@@ -223,8 +229,13 @@
       <div id="profile-error" class="error hidden"></div>
     </div>
     <div id="profile-stats" class="profile-stats"></div>
+    <div class="profile-tabs">
+      <button id="tab-my-spots" class="profile-tab active" data-i18n="photos">Fotos</button>
+      <button id="tab-my-liked" class="profile-tab" data-i18n="liked">Curtidos</button>
+    </div>
     <div id="profile-spots" class="profile-grid"></div>
     <p id="profile-empty" class="hint">Você ainda não publicou nenhuma foto. Toque em <b>＋ Nova foto</b> no mapa!</p>
+    <p id="profile-liked-empty" class="hint hidden">Você ainda não curtiu nenhum lugar. Toque em ❤ nos lugares que gostou!</p>
     <div class="change-pass">
       <button id="btn-show-change-pass" class="btn-primary">🔑 Alterar senha</button>
       <div id="change-pass-box" class="hidden">

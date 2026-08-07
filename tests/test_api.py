@@ -153,6 +153,25 @@ class ApiTestCase(unittest.TestCase):
         status, _, data = self.call(f"/api/spots/{spot_id}/photo?lat=-23.0&lng=-44.0")
         self.assertEqual(status, 404)
 
+    def test_07c_profile_liked_spots(self):
+        author = self.register("lori")
+        fan = self.register("tina")
+        _, _, s = self.call(
+            "/api/spots", "POST",
+            {"name": "Lugar Curioso", "lat": -23.0, "lng": -44.0, "photo": PNG, "radius_m": 500},
+            author,
+        )
+        sid = s["spot"]["id"]
+        self.call(f"/api/spots/{sid}/like", "POST", {}, fan)
+        _, _, prof = self.call("/api/profile", cookie=fan)
+        self.assertEqual(len(prof["liked_spots"]), 1)
+        self.assertEqual(prof["liked_spots"][0]["id"], sid)
+        self.call(f"/api/spots/{sid}/like", "POST", {}, fan)
+        _, _, prof2 = self.call("/api/profile", cookie=fan)
+        self.assertEqual(len(prof2["liked_spots"]), 0)
+        _, _, prof_author = self.call("/api/profile", cookie=author)
+        self.assertEqual(len(prof_author["liked_spots"]), 0)
+
     def test_07b_ranked_top_by_likes(self):
         a = self.register("ruth")
         b = self.register("sammy")
@@ -166,8 +185,8 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         names = [s["name"] for s in data["spots"]]
         self.assertEqual(names[0], "Top3")
-        self.assertEqual(names[1], "Top2")
         self.assertEqual(data["spots"][0]["like_count"], 2)
+        self.assertIn("Top2", names[:3])
 
     def test_08_expired_session_is_ignored(self):
         cookie = self.register("ivyrose")

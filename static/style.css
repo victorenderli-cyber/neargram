@@ -9,7 +9,7 @@
   --panel: #1a1a22;
   --panel2: #242430;
   --text: #f4f4f8;
-  --muted: #9d9dae;
+  --muted: #a6a6b8;
   --accent: #ff2d55;
   --ok: #30d66f;
   --radius: 16px;
@@ -41,6 +41,23 @@ body::before {
 ::selection { background: var(--accent); color: #fff; }
 
 button { -webkit-tap-highlight-color: transparent; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
 
 .hidden { display: none !important; }
 
@@ -427,6 +444,12 @@ html[data-theme="light"] .leaflet-control-layers label { color: var(--text); }
 
 /* perfil */
 .profile-stats { display: flex; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+.profile-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.profile-tab {
+  flex: 1; background: var(--panel2); color: var(--muted); font-size: 13px;
+  padding: 8px; border-radius: 10px; cursor: pointer; transition: .2s;
+}
+.profile-tab.active { background: var(--grad); color: #fff; }
 .profile-stats .stat {
   background: var(--panel2); border-radius: 10px; padding: 10px 14px; text-align: center;
   flex: 1; min-width: 80px; border: none; color: var(--text); cursor: pointer; transition: border-color .12s;
@@ -552,7 +575,7 @@ html[data-theme="light"] {
   --panel: #ffffff;
   --panel2: #ececf2;
   --text: #16161d;
-  --muted: #5f5f70;
+  --muted: #4f4f63;
   --accent: #e11d62;
   --ok: #1f9d55;
   --shadow-card: 0 10px 30px rgba(30,30,45,.12);
@@ -659,6 +682,21 @@ html[data-theme="light"] .map-controls { background: rgba(255,255,255,.85); }
 }
 .lightbox.hidden { display: none; }
 #lightbox-img { display: block; }
+.lb-nav {
+  position: fixed; top: 50%; transform: translateY(-50%);
+  background: rgba(255,255,255,.12); color: #fff; border: none;
+  font-size: 34px; width: 52px; height: 52px; border-radius: 50%;
+  cursor: pointer; z-index: 4001; transition: background .2s; line-height: 1;
+}
+.lb-nav:hover { background: rgba(255,255,255,.28); }
+#lb-prev { left: 14px; }
+#lb-next { right: 14px; }
+.lb-nav.hidden { display: none; }
+.lb-counter {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  color: rgba(255,255,255,.85); font-size: 14px; z-index: 4001; background: rgba(0,0,0,.5);
+  padding: 4px 12px; border-radius: 20px;
+}
 
 /* ---------- Select com tema ---------- */
 select {

@@ -20,6 +20,77 @@ let state = {
 const API = "/api";
 const SPOT_PAGE = 20;
 
+/* ---------------- Internacionalização ---------------- */
+const I18N = {
+  pt: {
+    locating: "Buscando sua posição…",
+    "loading-map": "Carregando mapa…",
+    center: "📍 Centralizar",
+    "new-photo": "＋ Nova foto",
+    explore: "🌍 Explorar por região…",
+    "mode-real": "Localização real",
+    "mode-sim": "Simular posição (clique no mapa)",
+    "feed-all": "Todos",
+    "feed-following": "Seguindo",
+    "suggested-title": "✨ Pessoas que talvez conheça",
+    reload: "🔄 Recarregar",
+    places: "Lugares",
+    ranking: "🏆 Ranking",
+    photos: "Fotos",
+    liked: "Curtidos",
+    "btn-profile": "Perfil",
+    logout: "Sair",
+    search: "🔍 Buscar",
+    notifications: "🔔 Notificações",
+    theme: "🌙 Alternar tema",
+  },
+  en: {
+    locating: "Locating…",
+    "loading-map": "Loading map…",
+    center: "📍 Center",
+    "new-photo": "＋ New photo",
+    explore: "🌍 Explore by region…",
+    "mode-real": "Real location",
+    "mode-sim": "Simulate position (click map)",
+    "feed-all": "All",
+    "feed-following": "Following",
+    "suggested-title": "✨ People you may know",
+    reload: "🔄 Refresh",
+    places: "Places",
+    ranking: "🏆 Ranking",
+    photos: "Photos",
+    liked: "Liked",
+    "btn-profile": "Profile",
+    logout: "Log out",
+    search: "🔍 Search",
+    notifications: "🔔 Notifications",
+    theme: "🌙 Toggle theme",
+  },
+};
+
+let _lang = localStorage.getItem("ng-lang") || "pt";
+function t(key) {
+  return (I18N[_lang] && I18N[_lang][key]) || I18N.pt[key] || key;
+}
+function applyI18n() {
+  document.documentElement.lang = _lang;
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.dataset.i18n;
+    if (key === "places") {
+      el.textContent = t(key);
+    } else {
+      el.textContent = t(key);
+    }
+  });
+  localStorage.setItem("ng-lang", _lang);
+}
+$("btn-lang").addEventListener("click", () => {
+  _lang = _lang === "pt" ? "en" : "pt";
+  applyI18n();
+  Telemetry.track("lang_change", { lang: _lang });
+});
+applyI18n();
+
 /* ---------------- Telemetria (consentida) ----------------
    Só coleta dados de quem aceitou o aviso de privacidade.
    A localização enviada é arredondada (precisão de ~1 km). */
@@ -243,6 +314,13 @@ const _webpSupported = (() => {
     return false;
   }
 })();
+const _avifSupported = (() => {
+  try {
+    return document.createElement("canvas").toDataURL("image/avif").startsWith("data:image/avif");
+  } catch (e) {
+    return false;
+  }
+})();
 
 function compressImage(dataUrl, maxDim, quality) {
   return new Promise((resolve, reject) => {
@@ -257,10 +335,21 @@ function compressImage(dataUrl, maxDim, quality) {
         canvas.width = width;
         canvas.height = height;
         canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        const mime = _webpSupported ? "image/webp" : "image/jpeg";
-        let out = canvas.toDataURL(mime, quality);
-        if (out.length > MAX_UPLOAD_B64) out = canvas.toDataURL(mime, 0.65);
-        if (out.length > MAX_UPLOAD_B64 && mime !== "image/jpeg") out = canvas.toDataURL("image/jpeg", 0.65);
+        const mimes = [];
+        if (_avifSupported) mimes.push("image/avif");
+        if (_webpSupported) mimes.push("image/webp");
+        mimes.push("image/jpeg");
+        let out = "";
+        for (const mime of mimes) {
+          const cand = canvas.toDataURL(mime, quality);
+          if (cand.length <= MAX_UPLOAD_B64) {
+            if (!out || cand.length < out.length) out = cand;
+          } else {
+            const cand2 = canvas.toDataURL(mime, 0.65);
+            if (cand2.length <= MAX_UPLOAD_B64 && (!out || cand2.length < out.length)) out = cand2;
+          }
+        }
+        if (!out) out = canvas.toDataURL(mimes[mimes.length - 1], 0.5);
         resolve(out);
       } catch (e) {
         reject(e);
@@ -388,6 +477,10 @@ async function openOwnProfile() {
       <div class="stat"><b>${p.stats.likes}</b><span>curtidas</span></div>
       <div class="stat"><b>${p.stats.comments}</b><span>comentários</span></div>`;
     renderProfileGrid("profile-spots", "profile-empty", p.spots, true);
+    state.mySpots = p.spots || [];
+    state.myLiked = p.liked_spots || [];
+    const likedEmpty = $("profile-liked-empty");
+    if (likedEmpty) likedEmpty.classList.toggle("hidden", state.myLiked.length > 0);
     $("profile-edit").classList.add("hidden");
     $("bio-input").value = p.user.bio || "";
     hideError("profile-error");
@@ -397,6 +490,24 @@ async function openOwnProfile() {
   }
 }
 $("btn-profile").addEventListener("click", openOwnProfile);
+
+$("tab-my-spots").addEventListener("click", () => setProfileTab("spots"));
+$("tab-my-liked").addEventListener("click", () => setProfileTab("liked"));
+
+function setProfileTab(tab) {
+  const spots = tab === "spots";
+  $("tab-my-spots").classList.toggle("active", spots);
+  $("tab-my-liked").classList.toggle("active", !spots);
+  $("profile-empty").classList.toggle("hidden", spots);
+  $("profile-liked-empty").classList.toggle("hidden", !spots);
+  if (spots) {
+    renderProfileGrid("profile-spots", "profile-empty", state.mySpots || [], true);
+    $("profile-empty").classList.toggle("hidden", (state.mySpots || []).length > 0);
+  } else {
+    renderProfileGrid("profile-spots", "profile-liked-empty", state.myLiked || [], false);
+    $("profile-liked-empty").classList.toggle("hidden", (state.myLiked || []).length > 0);
+  }
+}
 
 $("btn-edit-profile").addEventListener("click", () => {
   $("profile-edit").classList.remove("hidden");
@@ -966,7 +1077,15 @@ async function showSpotModal(spot) {
     photoEl.classList.remove("hidden");
     lockEl.classList.add("hidden");
     const pimg = photoEl.querySelector("img");
-    if (pimg) pimg.addEventListener("click", (e) => { e.stopPropagation(); openLightbox(pimg.src); });
+    if (pimg) {
+      pimg.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const unlockedSpots = (state.spots || []).filter((s) => s.unlocked === true && s.photo);
+        const idx = unlockedSpots.findIndex((s) => s.id === spot.id);
+        if (idx >= 0) openGallery(unlockedSpots.map((s) => s.photo), idx);
+        else openLightbox(pimg.src);
+      });
+    }
   } else {
     photoEl.classList.add("hidden");
     lockEl.classList.remove("hidden");
@@ -1555,14 +1674,44 @@ document.querySelectorAll(".modal").forEach((m) =>
   })
 );
 
-/* ---------------- Lightbox ---------------- */
+/* ---------------- Lightbox / Galeria ---------------- */
+let _galleryList = [];
+let _galleryIdx = 0;
+
 function openLightbox(src) {
+  _galleryList = [src];
+  _galleryIdx = 0;
+  renderLightbox();
+}
+
+function openGallery(list, idx) {
+  _galleryList = list.filter(Boolean);
+  _galleryIdx = Math.max(0, Math.min(idx || 0, _galleryList.length - 1));
+  if (!_galleryList.length) return;
+  renderLightbox();
+}
+
+function renderLightbox() {
+  const src = _galleryList[_galleryIdx];
+  if (!src) { $("lightbox").classList.add("hidden"); return; }
   $("lightbox-img").src = src;
+  $("lb-counter").textContent = _galleryList.length > 1 ? `${_galleryIdx + 1} / ${_galleryList.length}` : "";
+  $("lb-prev").classList.toggle("hidden", _galleryList.length < 2);
+  $("lb-next").classList.toggle("hidden", _galleryList.length < 2);
   $("lightbox").classList.remove("hidden");
 }
+
+function lbPrev() { if (_galleryIdx > 0) { _galleryIdx--; renderLightbox(); } }
+function lbNext() { if (_galleryIdx < _galleryList.length - 1) { _galleryIdx++; renderLightbox(); } }
+
+$("lb-prev").addEventListener("click", (e) => { e.stopPropagation(); lbPrev(); });
+$("lb-next").addEventListener("click", (e) => { e.stopPropagation(); lbNext(); });
 $("lightbox").addEventListener("click", () => $("lightbox").classList.add("hidden"));
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") $("lightbox").classList.add("hidden");
+  if ($("lightbox").classList.contains("hidden")) return;
+  if (e.key === "ArrowLeft") lbPrev();
+  if (e.key === "ArrowRight") lbNext();
 });
 
 function showError(id, msg) {

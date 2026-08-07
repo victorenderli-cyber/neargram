@@ -603,10 +603,17 @@ class Handler(BaseHTTPRequestHandler):
         rows = db.execute(
             conn, "SELECT * FROM spots WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)
         ).fetchall()
+        liked_rows = db.execute(
+            conn,
+            """SELECT sp.* FROM spots sp JOIN likes l ON l.spot_id = sp.id
+               WHERE l.user_id = ? ORDER BY l.created_at DESC LIMIT 100""",
+            (user["id"],),
+        ).fetchall()
         followers = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE followee_id = ?", (user["id"],)).fetchone()[0]
         following = db.execute(conn, "SELECT COUNT(*) FROM follows WHERE follower_id = ?", (user["id"],)).fetchone()[0]
         conn.close()
         spots = _bulk_public(rows, user["id"], None, None, as_author=True)
+        liked_spots = _bulk_public(liked_rows, user["id"], None, None, as_author=True)
         spots_count = len(spots)
         likes_received = sum(s["like_count"] for s in spots)
         comments_received = sum(len(s["comments"]) for s in spots)
@@ -616,6 +623,7 @@ class Handler(BaseHTTPRequestHandler):
             "stats": {"spots": spots_count, "likes": likes_received,
                       "comments": comments_received, "followers": followers, "following": following},
             "spots": spots,
+            "liked_spots": liked_spots,
         })
 
     def api_user_profile(self, query):
