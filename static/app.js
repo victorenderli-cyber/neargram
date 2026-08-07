@@ -513,6 +513,7 @@ async function boot() {
   state.user = me.user;
   showApp();
   initMap();
+  populateExploreRegions();
   startPositioning();
   handleDeepLink();
 }
@@ -578,6 +579,62 @@ document.querySelectorAll('input[name="mode"]').forEach((r) =>
     }
   })
 );
+
+/* ---------------- Explorar por região ---------------- */
+const EXPLORE_REGIONS = [
+  { label: "🌎 América do Sul — Rio de Janeiro, Brasil", lat: -22.9068, lng: -43.1729, zoom: 12 },
+  { label: "🌎 América do Sul — Buenos Aires, Argentina", lat: -34.6037, lng: -58.3816, zoom: 12 },
+  { label: "🌎 América do Sul — Lima, Peru", lat: -12.0464, lng: -77.0428, zoom: 12 },
+  { label: "🌎 América do Norte — Nova York, EUA", lat: 40.7128, lng: -74.0060, zoom: 12 },
+  { label: "🌎 América do Norte — São Francisco, EUA", lat: 37.7749, lng: -122.4194, zoom: 12 },
+  { label: "🌎 América do Norte — Cidade do México, México", lat: 19.4326, lng: -99.1332, zoom: 12 },
+  { label: "🌍 Europa — Paris, França", lat: 48.8566, lng: 2.3522, zoom: 12 },
+  { label: "🌍 Europa — Londres, Reino Unido", lat: 51.5074, lng: -0.1278, zoom: 12 },
+  { label: "🌍 Europa — Roma, Itália", lat: 41.9028, lng: 12.4964, zoom: 12 },
+  { label: "🌍 Europa — Lisboa, Portugal", lat: 38.7223, lng: -9.1393, zoom: 12 },
+  { label: "🌍 Europa — Barcelona, Espanha", lat: 41.3874, lng: 2.1686, zoom: 12 },
+  { label: "🌏 Ásia — Tóquio, Japão", lat: 35.6762, lng: 139.6503, zoom: 12 },
+  { label: "🌏 Ásia — Seul, Coreia do Sul", lat: 37.5665, lng: 126.9780, zoom: 12 },
+  { label: "🌏 Ásia — Dubai, Emirados Árabes", lat: 25.2048, lng: 55.2708, zoom: 12 },
+  { label: "🌏 Ásia — Bangkok, Tailândia", lat: 13.7563, lng: 100.5018, zoom: 12 },
+  { label: "🌏 Oceania — Sydney, Austrália", lat: -33.8688, lng: 151.2093, zoom: 12 },
+  { label: "🌏 Oceania — Auckland, Nova Zelândia", lat: -36.8509, lng: 174.7645, zoom: 12 },
+  { label: "🏝️ Caribe — Havana, Cuba", lat: 23.1136, lng: -82.3666, zoom: 12 },
+];
+
+function populateExploreRegions() {
+  const sel = $("explore-select");
+  if (!sel) return;
+  EXPLORE_REGIONS.forEach((r) => {
+    const opt = document.createElement("option");
+    opt.value = `${r.lat},${r.lng},${r.zoom}`;
+    opt.textContent = r.label;
+    sel.appendChild(opt);
+  });
+}
+
+$("explore-select")?.addEventListener("change", (e) => {
+  const v = e.target.value;
+  if (!v || !state.map) return;
+  const [lat, lng, zoom] = v.split(",").map(Number);
+  try { localStorage.setItem("ng-explore-region", JSON.stringify({ lat, lng, zoom })); } catch (_) {}
+  state.map.flyTo([lat, lng], zoom || 12, { duration: 1.2 });
+  if (state.mode !== "sim") {
+    state.mode = "sim";
+    const sim = document.querySelector('input[value="sim"]');
+    if (sim) sim.checked = true;
+    state.map.off("click");
+    state.map.on("click", (ev) => setPositionDebounced(ev.latlng.lat, ev.latlng.lng, true));
+  }
+  setPosition(lat, lng, true);
+  setModeLabel(`🔎 Explorando: ${optLabel(v)}`);
+  toast(`Explorando lugares de ${optLabel(v)}`, "ok");
+});
+
+function optLabel(val) {
+  const r = EXPLORE_REGIONS.find((x) => `${x.lat},${x.lng},${x.zoom}` === val);
+  return r ? r.label.split(" — ")[1] : "a região";
+}
 
 function startPositioning() {
   function posReal(pos) {

@@ -226,6 +226,11 @@ main {
 }
 .map-controls.bottom { bottom: auto; top: 12px; right: 12px; left: auto; font-size: 12px; color: var(--muted); align-items: center; }
 .map-controls label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.map-controls.explore-control { bottom: 12px; right: 12px; left: auto; z-index: 599; }
+#explore-select {
+  background: var(--panel2); color: var(--text); border: 1px solid rgba(255,255,255,.12);
+  border-radius: 8px; padding: 6px 8px; font-size: 12px; max-width: 230px; cursor: pointer;
+}
 
 /* Leaflet overrides */
 .leaflet-container { background: #15151c; font-family: inherit; }
